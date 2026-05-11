@@ -1,0 +1,110 @@
+{
+  "name": "readme-generator-ai",
+  "displayName": "README Generator AI",
+  "description": "Genera README en español a partir de un repositorio local usando Azure OpenAI Responses API y una plantilla Jinja/Nunjucks.",
+  "version": "0.1.0",
+  "publisher": "nttdata",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.92.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:readmeGeneratorAi.generateReadme"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "readmeGeneratorAi.generateReadme",
+        "title": "Generate README",
+        "category": "README Generator AI",
+        "icon": "$(book)"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "readmeGeneratorAi.generateReadme"
+        }
+      ],
+      "explorer/title": [
+        {
+          "command": "readmeGeneratorAi.generateReadme",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "README Generator AI",
+      "properties": {
+        "readmeGeneratorAi.apiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Azure OpenAI API key. Prefer setting it in user settings and avoid committing workspace settings.",
+          "scope": "machine"
+        },
+        "readmeGeneratorAi.endpoint": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Azure OpenAI endpoint. Accepts either the resource endpoint, for example `https://my-resource.openai.azure.com`, or a full Responses API URL.",
+          "scope": "machine"
+        },
+        "readmeGeneratorAi.deployment": {
+          "type": "string",
+          "default": "test-plantillas-gpt-5.2-codex",
+          "markdownDescription": "Azure OpenAI deployment/model name used by the Responses API.",
+          "scope": "machine"
+        },
+        "readmeGeneratorAi.templatePath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Optional absolute path to the external Jinja markdown template. If empty, the extension uses its bundled template.",
+          "scope": "resource"
+        },
+        "readmeGeneratorAi.maxFiles": {
+          "type": "number",
+          "default": 24,
+          "minimum": 4,
+          "maximum": 60,
+          "markdownDescription": "Maximum number of ranked files sent to Azure OpenAI.",
+          "scope": "resource"
+        },
+        "readmeGeneratorAi.maxBytesPerFile": {
+          "type": "number",
+          "default": 18000,
+          "minimum": 2000,
+          "maximum": 60000,
+          "markdownDescription": "Maximum bytes read from each selected source file.",
+          "scope": "resource"
+        },
+        "readmeGeneratorAi.maxTotalBytes": {
+          "type": "number",
+          "default": 160000,
+          "minimum": 20000,
+          "maximum": 400000,
+          "markdownDescription": "Maximum combined source bytes sent to Azure OpenAI.",
+          "scope": "resource"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "dependencies": {
+    "nunjucks": "^3.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "@types/nunjucks": "^3.2.6",
+    "@types/vscode": "^1.92.0",
+    "@vscode/vsce": "^2.31.1",
+    "typescript": "^5.5.4"
+  }
+}

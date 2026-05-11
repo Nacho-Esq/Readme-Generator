@@ -1,0 +1,257 @@
+# {{ project_name }}
+
+Opcional: incluir un pantallazo o GIF de la interfaz o de una conversación.
+
+- Ruta sugerida: `{% if screenshot_path %}{{ screenshot_path }}{% else %}images/screenshot.png{% endif %}`
+- Ejemplo (Markdown):
+
+![Captura del asistente]({% if screenshot_path %}{{ screenshot_path }}{% else %}images/screenshot.png{% endif %})
+
+---
+
+## 1. Resumen
+
+Este README es un documento de entrada. Mantén la información **a nivel alto** y enlaza a manuales específicos para el detalle (evita duplicar contenido).
+
+- **Qué es**: {{ summary.what_is }}
+- **Tipo**: {{ summary.project_type }}
+- **Propósito**: {{ summary.purpose }}
+- **Usuarios**: {% if summary.target_users %}{{ summary.target_users | join(", ") }}{% endif %}
+- **Estado**: {{ summary.status }}
+- **Objetivo y éxito**: {{ summary.success_criteria }}
+
+---
+
+## 2. Alcance y limitaciones
+
+Define el perímetro para evitar malentendidos.
+
+- **Qué incluye**:
+{% if scope.includes %}
+{% for item in scope.includes %}
+  - {{ item }}
+{% endfor %}
+{% endif %}
+- **Qué no incluye**:
+{% if scope.excludes %}
+{% for item in scope.excludes %}
+  - {{ item }}
+{% endfor %}
+{% endif %}
+- **Limitaciones conocidas**:
+{% if scope.known_limitations %}
+{% for item in scope.known_limitations %}
+  - {{ item }}
+{% endfor %}
+{% endif %}
+
+---
+
+## 3. Usuarios y uso previsto
+
+Describe el "quién, dónde y cuándo".
+
+- **Usuarios objetivo**: {% if summary.target_users %}{{ summary.target_users | join(", ") }}{% endif %}
+- **Canales**: {% if usage.channels %}{{ usage.channels | join(", ") }}{% endif %}
+- **Idiomas**: {% if usage.languages %}{{ usage.languages | join(", ") }}{% endif %}
+- **Contexto de uso**:
+{% if usage.contexts %}
+{% for item in usage.contexts %}
+  - {{ item }}
+{% endfor %}
+{% endif %}
+
+---
+
+## 4. Experiencia de usuario (alto nivel)
+
+Describe el comportamiento observable sin convertirlo en un manual.
+
+- **Cómo se inicia**: {{ ux.start_flow }}
+- **Qué preguntas se esperan**:
+{% if ux.expected_questions %}
+{% for item in ux.expected_questions %}
+  - {{ item }}
+{% endfor %}
+{% endif %}
+- **Adjuntos** (si aplica): {{ ux.attachments_support }}
+- **Errores y fallback**: {{ ux.fallback_error_handling }}
+- **Handoff a humano** (si aplica): {{ ux.human_handoff }}
+- **Historial/memoria**: {{ ux.history_session_memory }}
+
+Nota: el detalle paso a paso debe ir en el **Manual de Usuario** (enlaces en "Documentación y enlaces").
+
+---
+
+## 5. Arquitectura (resumen)
+
+Explica a alto nivel cómo está construido para facilitar soporte y handover.
+
+- **Diagrama lógico** (opcional): {{ architecture.logical_flow }}
+- **Componentes principales**:
+{% if architecture.components %}
+{% for item in architecture.components %}
+  - {{ item }}
+{% endfor %}
+{% endif %}
+- **Dependencias externas**:
+{% if architecture.external_dependencies %}
+{% for item in architecture.external_dependencies %}
+  - {{ item }}
+{% endfor %}
+{% endif %}
+
+---
+
+## 6. Conocimiento y prompts (resumen)
+
+- **Fuentes**:
+{% if knowledge_prompts.sources %}
+{% for item in knowledge_prompts.sources %}
+  - {{ item }}
+{% endfor %}
+{% endif %}
+- **Recuperación (RAG)** (si aplica): {{ knowledge_prompts.rag_summary }}
+- **Prompts/guardrails**: {{ knowledge_prompts.prompt_guardrails_location }}
+- **Contenido no permitido**: {{ knowledge_prompts.forbidden_content_handling }}
+
+---
+
+## 7. Seguridad, privacidad y cumplimiento (resumen)
+
+- **Datos tratados**:
+{% if security_privacy.processed_data %}
+{% for item in security_privacy.processed_data %}
+  - {{ item }}
+{% endfor %}
+{% endif %}
+- **Retención/almacenamiento**: {{ security_privacy.retention_storage }}
+- **Acceso**: {{ security_privacy.access_auth }}
+- **Redacción/anonimización** (si aplica) y **gestión de secretos** (a alto nivel): {{ security_privacy.anonymization_secrets }}
+- **Cumplimiento**: {{ security_privacy.compliance_notes }}
+
+---
+
+## 8. Desarrollo local
+
+Cómo preparar el entorno, arrancar y validar cambios.
+
+- **Requisitos**:
+{% if local_development.requirements %}
+{% for item in local_development.requirements %}
+  - {{ item }}
+{% endfor %}
+{% endif %}
+- **Variables de entorno**:
+{% if local_development.env_variables %}
+{% for item in local_development.env_variables %}
+  - **{{ item.name }}**: {{ item.description }}
+{% endfor %}
+{% endif %}
+- **Recursos/datos**:
+{% if local_development.resources %}
+{% for item in local_development.resources %}
+  - {{ item }}
+{% endfor %}
+{% endif %}
+- **Ejecutar**:
+{% if local_development.install_run_commands %}
+{% for item in local_development.install_run_commands %}
+  - `{{ item }}`
+{% endfor %}
+{% endif %}
+- **Validación rápida**:
+{% if local_development.validation_checks %}
+{% for item in local_development.validation_checks %}
+  - {{ item }}
+{% endfor %}
+{% endif %}
+- **Pruebas**: {{ local_development.testing_strategy }}
+
+---
+
+## 9. Despliegue (visión general)
+
+- **Entornos**:
+{% if deployment.environments %}
+{% for item in deployment.environments %}
+  - {{ item }}
+{% endfor %}
+{% endif %}
+- **Proceso**: {{ deployment.process }}
+- **Diferencias por entorno**: {{ deployment.environment_differences }}
+
+---
+
+## 10. Operación y observabilidad (resumen)
+
+- **Dónde mirar**: logs: {{ operations.logs }}; trazas: {{ operations.traces }}; métricas: {{ operations.metrics }}
+- **Señales clave**: error rate, latencia, tokens/coste, ratio de fallback, ratio de escalado.
+- **Alertas/runbooks** (si aplica): {{ operations.alerts_runbooks }}
+- **Incidencias**: {{ operations.incident_process }}
+
+---
+
+## 11. Documentación y enlaces
+
+Enlaces directos a recursos del proyecto (mantener actualizado).
+
+- **Gestión y coordinación**:
+{% if documentation_links.coordination_tools %}
+{% for item in documentation_links.coordination_tools %}
+  - {{ item }}
+{% endfor %}
+{% endif %}
+- **Repositorios y CI/CD**:
+{% if documentation_links.repos_pipelines %}
+{% for item in documentation_links.repos_pipelines %}
+  - {{ item }}
+{% endfor %}
+{% endif %}
+- **Entornos y recursos**:
+{% if documentation_links.environments_resources %}
+{% for item in documentation_links.environments_resources %}
+  - {{ item }}
+{% endfor %}
+{% endif %}
+- **Documentación**:
+{% if documentation_links.manuals_docs %}
+{% for item in documentation_links.manuals_docs %}
+  - {{ item }}
+{% endfor %}
+{% endif %}
+
+---
+
+## 12. Roadmap / mejoras
+
+Lista de mejoras previstas (roadmap) y deuda técnica relevante.
+
+{% if roadmap %}
+{% for item in roadmap %}
+- {{ item }}
+{% endfor %}
+{% endif %}
+
+---
+
+## 13. Contactos y ownership
+
+Personas/equipos responsables y a quién acudir según el tipo de necesidad.
+
+- **Product owner**: {{ contacts.product_owner }}
+- **Responsable técnico**: {{ contacts.technical_owner }}
+- **Equipo responsable**: {{ contacts.responsible_team }}
+- **Soporte/Operación (si aplica)**: {{ contacts.support_operations }}
+
+---
+
+## 14. Proyectos relacionados (solo desarrollador)
+
+Esta sección la rellena únicamente el desarrollador. Añade enlaces a proyectos previos, posteriores, librerías internas, aceleradores o iniciativas relacionadas.
+
+{% if related_projects %}
+{% for item in related_projects %}
+- {{ item }}
+{% endfor %}
+{% endif %}

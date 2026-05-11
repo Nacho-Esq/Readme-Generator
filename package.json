@@ -1,7 +1,7 @@
 {
   "name": "readme-generator-ai",
   "displayName": "README Generator AI",
-  "description": "Genera README en español a partir de un repositorio local usando Azure OpenAI Responses API y una plantilla Jinja/Nunjucks.",
+  "description": "Generate polished README documentation from a local repository using Azure OpenAI Responses API and a Jinja/Nunjucks template.",
   "version": "0.1.0",
   "publisher": "nttdata",
   "license": "MIT",
@@ -12,6 +12,7 @@
     "Other"
   ],
   "activationEvents": [
+    "onStartupFinished",
     "onCommand:readmeGeneratorAi.generateReadme"
   ],
   "main": "./dist/extension.js",
@@ -33,6 +34,13 @@
       "explorer/title": [
         {
           "command": "readmeGeneratorAi.generateReadme",
+          "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "readmeGeneratorAi.generateReadme",
+          "when": "workspaceFolderCount > 0",
           "group": "navigation"
         }
       ]

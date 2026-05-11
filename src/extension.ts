@@ -22,8 +22,11 @@ export function activate(context: vscode.ExtensionContext): void {
   statusBarItem.text = '$(book) Generate README';
   statusBarItem.tooltip = 'Generate README with Azure OpenAI';
   statusBarItem.command = 'readmeGeneratorAi.generateReadme';
-  statusBarItem.show();
-  context.subscriptions.push(statusBarItem);
+  updateStatusBarVisibility();
+  context.subscriptions.push(
+    statusBarItem,
+    vscode.workspace.onDidChangeWorkspaceFolders(updateStatusBarVisibility)
+  );
 }
 
 export function deactivate(): void {
@@ -102,4 +105,12 @@ function getActiveWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
     }
   }
   return vscode.workspace.workspaceFolders?.[0];
+}
+
+function updateStatusBarVisibility(): void {
+  if (vscode.workspace.workspaceFolders?.length) {
+    statusBarItem?.show();
+  } else {
+    statusBarItem?.hide();
+  }
 }

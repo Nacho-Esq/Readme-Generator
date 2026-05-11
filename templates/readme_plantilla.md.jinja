@@ -1,17 +1,12 @@
 # {{ project_name }}
 
-Opcional: incluir un pantallazo o GIF de la interfaz o de una conversación.
-
-- Ruta sugerida: `{% if screenshot_path %}{{ screenshot_path }}{% else %}images/screenshot.png{% endif %}`
-- Ejemplo (Markdown):
-
-![Captura del asistente]({% if screenshot_path %}{{ screenshot_path }}{% else %}images/screenshot.png{% endif %})
+{% if screenshot_path %}
+![{{ project_name }}]({{ screenshot_path }})
+{% endif %}
 
 ---
 
 ## 1. Resumen
-
-Este README es un documento de entrada. Mantén la información **a nivel alto** y enlaza a manuales específicos para el detalle (evita duplicar contenido).
 
 - **Qué es**: {{ summary.what_is }}
 - **Tipo**: {{ summary.project_type }}
@@ -23,8 +18,6 @@ Este README es un documento de entrada. Mantén la información **a nivel alto**
 ---
 
 ## 2. Alcance y limitaciones
-
-Define el perímetro para evitar malentendidos.
 
 - **Qué incluye**:
 {% if scope.includes %}
@@ -49,8 +42,6 @@ Define el perímetro para evitar malentendidos.
 
 ## 3. Usuarios y uso previsto
 
-Describe el "quién, dónde y cuándo".
-
 - **Usuarios objetivo**: {% if summary.target_users %}{{ summary.target_users | join(", ") }}{% endif %}
 - **Canales**: {% if usage.channels %}{{ usage.channels | join(", ") }}{% endif %}
 - **Idiomas**: {% if usage.languages %}{{ usage.languages | join(", ") }}{% endif %}
@@ -65,8 +56,6 @@ Describe el "quién, dónde y cuándo".
 
 ## 4. Experiencia de usuario (alto nivel)
 
-Describe el comportamiento observable sin convertirlo en un manual.
-
 - **Cómo se inicia**: {{ ux.start_flow }}
 - **Qué preguntas se esperan**:
 {% if ux.expected_questions %}
@@ -79,13 +68,9 @@ Describe el comportamiento observable sin convertirlo en un manual.
 - **Handoff a humano** (si aplica): {{ ux.human_handoff }}
 - **Historial/memoria**: {{ ux.history_session_memory }}
 
-Nota: el detalle paso a paso debe ir en el **Manual de Usuario** (enlaces en "Documentación y enlaces").
-
 ---
 
 ## 5. Arquitectura (resumen)
-
-Explica a alto nivel cómo está construido para facilitar soporte y handover.
 
 - **Diagrama lógico** (opcional): {{ architecture.logical_flow }}
 - **Componentes principales**:
@@ -103,7 +88,7 @@ Explica a alto nivel cómo está construido para facilitar soporte y handover.
 
 ---
 
-## 6. Conocimiento y prompts (resumen)
+## 6. Conocimiento y prompts
 
 - **Fuentes**:
 {% if knowledge_prompts.sources %}
@@ -117,7 +102,7 @@ Explica a alto nivel cómo está construido para facilitar soporte y handover.
 
 ---
 
-## 7. Seguridad, privacidad y cumplimiento (resumen)
+## 7. Seguridad, privacidad y cumplimiento
 
 - **Datos tratados**:
 {% if security_privacy.processed_data %}
@@ -133,8 +118,6 @@ Explica a alto nivel cómo está construido para facilitar soporte y handover.
 ---
 
 ## 8. Desarrollo local
-
-Cómo preparar el entorno, arrancar y validar cambios.
 
 - **Requisitos**:
 {% if local_development.requirements %}
@@ -170,7 +153,7 @@ Cómo preparar el entorno, arrancar y validar cambios.
 
 ---
 
-## 9. Despliegue (visión general)
+## 9. Despliegue
 
 - **Entornos**:
 {% if deployment.environments %}
@@ -183,7 +166,7 @@ Cómo preparar el entorno, arrancar y validar cambios.
 
 ---
 
-## 10. Operación y observabilidad (resumen)
+## 10. Operación y observabilidad
 
 - **Dónde mirar**: logs: {{ operations.logs }}; trazas: {{ operations.traces }}; métricas: {{ operations.metrics }}
 - **Señales clave**: error rate, latencia, tokens/coste, ratio de fallback, ratio de escalado.
@@ -193,8 +176,6 @@ Cómo preparar el entorno, arrancar y validar cambios.
 ---
 
 ## 11. Documentación y enlaces
-
-Enlaces directos a recursos del proyecto (mantener actualizado).
 
 - **Gestión y coordinación**:
 {% if documentation_links.coordination_tools %}
@@ -225,8 +206,6 @@ Enlaces directos a recursos del proyecto (mantener actualizado).
 
 ## 12. Roadmap / mejoras
 
-Lista de mejoras previstas (roadmap) y deuda técnica relevante.
-
 {% if roadmap %}
 {% for item in roadmap %}
 - {{ item }}
@@ -237,8 +216,6 @@ Lista de mejoras previstas (roadmap) y deuda técnica relevante.
 
 ## 13. Contactos y ownership
 
-Personas/equipos responsables y a quién acudir según el tipo de necesidad.
-
 - **Product owner**: {{ contacts.product_owner }}
 - **Responsable técnico**: {{ contacts.technical_owner }}
 - **Equipo responsable**: {{ contacts.responsible_team }}
@@ -246,9 +223,7 @@ Personas/equipos responsables y a quién acudir según el tipo de necesidad.
 
 ---
 
-## 14. Proyectos relacionados (solo desarrollador)
-
-Esta sección la rellena únicamente el desarrollador. Añade enlaces a proyectos previos, posteriores, librerías internas, aceleradores o iniciativas relacionadas.
+## 14. Proyectos relacionados
 
 {% if related_projects %}
 {% for item in related_projects %}

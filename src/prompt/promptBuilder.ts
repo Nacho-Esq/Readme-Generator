@@ -1,5 +1,6 @@
 import { SelectedFile } from '../scanner/types';
 import { ReadmeData } from '../types';
+import { buildFieldInstructionText, getFieldInstruction } from './fieldInstructions';
 
 export const emptyReadmeData: ReadmeData = {
   project_name: '',
@@ -121,6 +122,9 @@ export function buildExtractionPrompt(files: SelectedFile[], workspaceName: stri
     '- docs/, README y markdowns técnicos',
     '- código fuente, comentarios, prompts y configuración de agentes',
     '',
+    'Instrucciones específicas por campo:',
+    buildFieldInstructionText(),
+    '',
     `Nombre del workspace: ${workspaceName}`,
     '',
     'Campos esperados:',
@@ -143,8 +147,11 @@ export function getExtractionJsonSchema(): object {
       additionalProperties: false,
       required: ['name', 'description'],
       properties: {
-        name: { type: 'string' },
-        description: { type: 'string' }
+        name: withDescription({ type: 'string' }, getFieldInstruction('local_development.env_variables.name')),
+        description: withDescription(
+          { type: 'string' },
+          getFieldInstruction('local_development.env_variables.description')
+        )
       }
     }
   };
@@ -161,15 +168,16 @@ export function getExtractionJsonSchema(): object {
 }
 
 function schemaFromValue(value: unknown, path: string, stringArray: object, envVariableArray: object): object {
+  const description = getFieldInstruction(path);
   if (typeof value === 'string') {
-    return { type: 'string' };
+    return withDescription({ type: 'string' }, description);
   }
   if (Array.isArray(value)) {
-    return path === 'local_development.env_variables' ? envVariableArray : stringArray;
+    return withDescription(path === 'local_development.env_variables' ? envVariableArray : stringArray, description);
   }
   if (value && typeof value === 'object') {
     const entries = Object.entries(value as Record<string, unknown>);
-    return {
+    return withDescription({
       type: 'object',
       additionalProperties: false,
       required: entries.map(([key]) => key),
@@ -179,7 +187,11 @@ function schemaFromValue(value: unknown, path: string, stringArray: object, envV
           schemaFromValue(child, path ? `${path}.${key}` : key, stringArray, envVariableArray)
         ])
       )
-    };
+    }, description);
   }
-  return { type: 'string' };
+  return withDescription({ type: 'string' }, description);
+}
+
+function withDescription(schema: object, description: string | undefined): object {
+  return description ? { ...schema, description } : schema;
 }

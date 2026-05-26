@@ -3,6 +3,12 @@ import * as vscode from 'vscode';
 import { AzureResponsesClient } from './azure/azureResponsesClient';
 import { ensureConfigured, getSettings } from './config';
 import { buildExtractionPrompt } from './prompt/promptBuilder';
+import {
+  analyzeReadmeData,
+  completeRenderOptions,
+  createDefaultRenderOptions,
+  prepareDataForReview
+} from './readme/reviewModel';
 import { rankFiles } from './scanner/fileRanker';
 import { readSelectedFiles, scanRepository } from './scanner/fileScanner';
 import { TemplateRenderer } from './template/templateRenderer';
@@ -69,19 +75,35 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
 
     const renderer = new TemplateRenderer(context.extensionUri);
     const templatePath = await renderer.resolveTemplatePath(settings.templatePath);
-    const initialMarkdown = await renderer.render(templatePath, extraction.data);
+    const review = analyzeReadmeData(extraction.data);
+    const initialRenderOptions = completeRenderOptions(extraction.data, createDefaultRenderOptions());
+    const initialReviewData = prepareDataForReview(extraction.data, initialRenderOptions);
+    const initialMarkdown = await renderer.render(templatePath, initialReviewData, initialRenderOptions);
 
-    const previewAction = await PreviewPanel.show(initialMarkdown, extraction.warnings, context.extensionUri);
-    if (previewAction !== 'edit') {
+    const previewAction = await PreviewPanel.show(
+      initialMarkdown,
+      extraction.warnings,
+      context.extensionUri,
+      review,
+      initialRenderOptions,
+      async (renderOptions) => {
+        const completedOptions = completeRenderOptions(extraction.data, renderOptions);
+        const reviewData = prepareDataForReview(extraction.data, completedOptions);
+        return renderer.render(templatePath, reviewData, completedOptions);
+      }
+    );
+    if (previewAction.action !== 'edit') {
       return;
     }
 
-    const editResult = await EditFormPanel.show(extraction.data, extraction.warnings, context.extensionUri);
+    const renderOptions = completeRenderOptions(extraction.data, previewAction.renderOptions);
+    const reviewData = prepareDataForReview(extraction.data, renderOptions);
+    const editResult = await EditFormPanel.show(reviewData, extraction.warnings, context.extensionUri, renderOptions);
     if (editResult.action !== 'save') {
       return;
     }
 
-    const finalMarkdown = await renderer.render(templatePath, editResult.data);
+    const finalMarkdown = await renderer.render(templatePath, editResult.data, editResult.renderOptions);
     const outputUri = vscode.Uri.file(path.join(workspaceFolder.uri.fsPath, 'README.generated.md'));
     await vscode.workspace.fs.writeFile(outputUri, new TextEncoder().encode(finalMarkdown));
 

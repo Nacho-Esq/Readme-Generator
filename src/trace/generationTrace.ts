@@ -102,6 +102,11 @@ export async function openLastGenerationTrace(workspaceFolder: vscode.WorkspaceF
 }
 
 function formatTraceMarkdown(trace: GenerationTrace): string {
+  const selectionPromptChars = trace.selectionPrompt.length;
+  const selectionPromptTokens = estimateTokens(trace.selectionPrompt);
+  const finalReadChars = trace.finalReadFiles.reduce((total, file) => total + file.contentChars, 0);
+  const finalReadTokens = trace.finalReadFiles.reduce((total, file) => total + file.estimatedTokens, 0);
+
   return [
     '# README Generator AI - Last Run Trace',
     '',
@@ -112,7 +117,12 @@ function formatTraceMarkdown(trace: GenerationTrace): string {
     `- Max bytes per file: ${trace.maxBytesPerFile}`,
     `- Used fallback: ${trace.usedFallback ? 'yes' : 'no'}`,
     '',
-    '## Local Discarded Files',
+    '## Token And Character Usage',
+    `- Selection prompt sent to LLM: ${selectionPromptTokens} estimated tokens, ${selectionPromptChars} chars`,
+    `- Final detailed files read: ${finalReadTokens} estimated tokens, ${finalReadChars} chars`,
+    `- Detailed read token budget: ${trace.tokenBudget} estimated tokens`,
+    '',
+    '## Files Discarded Before LLM',
     formatDiscarded(trace.localDiscardedSummary),
     '',
     '## Metadata Sent To LLM',
@@ -140,11 +150,14 @@ function formatDiscarded(items: DiscardedFileSummary[]): string {
   if (items.length === 0) {
     return '- None';
   }
+  const total = items.reduce((count, item) => count + item.count, 0);
+  const lines = [`Total discarded files: ${total}`];
   return items
-    .map((item) => {
+    .reduce((output, item) => {
       const examples = item.examples.length ? ` Examples: ${item.examples.join(', ')}` : '';
-      return `- ${item.reason} (${item.stage || 'unknown'}): ${item.count}.${examples}`;
-    })
+      output.push(`- ${item.reason} (${item.stage || 'unknown'}): ${item.count}.${examples}`);
+      return output;
+    }, lines)
     .join('\n');
 }
 

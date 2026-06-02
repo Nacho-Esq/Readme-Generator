@@ -1,5 +1,7 @@
 import { ExtensionSettings, ExtractionResult } from '../types';
 import { getExtractionJsonSchema } from '../prompt/promptBuilder';
+import { getFileSelectionJsonSchema } from '../prompt/fileSelectionPrompt';
+import { FileSelectionResult } from '../scanner/types';
 
 interface ResponsesApiOutputContent {
   type?: string;
@@ -21,6 +23,33 @@ interface ResponsesApiResponse {
 
 export class AzureResponsesClient {
   constructor(private readonly settings: ExtensionSettings) {}
+
+  async selectImportantFiles(prompt: string): Promise<FileSelectionResult> {
+    const response = await this.postResponse({
+      model: this.settings.deployment,
+      input: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: prompt
+            }
+          ]
+        }
+      ],
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'file_selection_result',
+          strict: true,
+          schema: getFileSelectionJsonSchema()
+        }
+      }
+    });
+
+    return parseFileSelectionResult(extractResponseText(response));
+  }
 
   async extractReadmeData(prompt: string): Promise<ExtractionResult> {
     const response = await this.postResponse({
@@ -80,6 +109,22 @@ export class AzureResponsesClient {
 
     return `${base.replace(/\/+$/, '')}/responses`;
   }
+}
+
+function parseFileSelectionResult(text: string): FileSelectionResult {
+  const parsed = safeJsonParse<FileSelectionResult>(text) || safeJsonParse<FileSelectionResult>(extractJsonObject(text));
+  if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.selectedFiles)) {
+    throw new Error('Azure OpenAI response was not valid file selection JSON.');
+  }
+  return {
+    selectedFiles: parsed.selectedFiles
+      .filter((item) => item && typeof item.path === 'string')
+      .map((item) => ({
+        path: item.path,
+        reason: typeof item.reason === 'string' ? item.reason : ''
+      })),
+    warnings: Array.isArray(parsed.warnings) ? parsed.warnings : []
+  };
 }
 
 function extractResponseText(response: ResponsesApiResponse): string {

@@ -78,42 +78,53 @@ export async function scanRepository(workspaceFolder: vscode.WorkspaceFolder): P
   return candidates;
 }
 
-export async function readSelectedFiles(
+export async function readSelectedFilesByTokenBudget(
   rankedFiles: RankedFile[],
-  maxFiles: number,
   maxBytesPerFile: number,
-  maxTotalBytes: number
+  maxTotalTokens: number
 ): Promise<SelectedFile[]> {
   const selected: SelectedFile[] = [];
-  let totalBytes = 0;
+  let totalTokens = 0;
 
-  for (const file of rankedFiles.slice(0, maxFiles)) {
-    if (totalBytes >= maxTotalBytes) {
+  for (const file of rankedFiles) {
+    if (totalTokens >= maxTotalTokens) {
       break;
     }
 
-    const remaining = maxTotalBytes - totalBytes;
-    const byteLimit = Math.min(maxBytesPerFile, remaining);
-    if (byteLimit <= 0) {
-      break;
-    }
-
+    const remainingTokens = maxTotalTokens - totalTokens;
+    const byteLimit = Math.min(maxBytesPerFile, Math.max(1, remainingTokens * 4));
     try {
       const bytes = await vscode.workspace.fs.readFile(file.uri);
-      const slice = bytes.slice(0, byteLimit);
-      const content = new TextDecoder('utf-8', { fatal: false }).decode(slice);
-      totalBytes += slice.byteLength;
+      let slice = bytes.slice(0, byteLimit);
+      let content = new TextDecoder('utf-8', { fatal: false }).decode(slice);
+      const tokenEstimate = estimateTokens(content);
+
+      if (tokenEstimate > remainingTokens) {
+        content = content.slice(0, remainingTokens * 4);
+        slice = new TextEncoder().encode(content);
+      }
+
+      const usedTokens = estimateTokens(content);
+      if (usedTokens <= 0) {
+        continue;
+      }
+
+      totalTokens += usedTokens;
       selected.push({
         ...file,
         content,
         truncated: bytes.byteLength > slice.byteLength
       });
     } catch {
-      // Keep generation moving if one ranked file cannot be read.
+      // Keep generation moving if one selected file cannot be read.
     }
   }
 
   return selected;
+}
+
+export function estimateTokens(content: string): number {
+  return Math.ceil(content.length / 4);
 }
 
 function shouldIgnore(relativePath: string): boolean {

@@ -64,12 +64,20 @@
           "markdownDescription": "Optional absolute path to the external Jinja markdown template. If empty, the extension uses its bundled template.",
           "scope": "resource"
         },
-        "readmeGeneratorAi.maxFiles": {
-          "type": "number",
-          "default": 24,
-          "minimum": 4,
-          "maximum": 60,
-          "markdownDescription": "Maximum number of ranked files sent to Azure OpenAI.",
+        "readmeGeneratorAi.readDepth": {
+          "type": "string",
+          "default": "básico",
+          "enum": [
+            "básico",
+            "detallado",
+            "profundo"
+          ],
+          "enumDescriptions": [
+            "Consumo bajo: aprox. 30k tokens de lectura detallada.",
+            "Consumo medio: aprox. 90k tokens de lectura detallada.",
+            "Consumo elevado: aprox. 180k tokens de lectura detallada."
+          ],
+          "markdownDescription": "Controla cuanto contenido detallado se envia despues de que el LLM seleccione los archivos importantes.",
           "scope": "resource"
         },
         "readmeGeneratorAi.maxBytesPerFile": {
@@ -77,15 +85,7 @@
           "default": 18000,
           "minimum": 2000,
           "maximum": 60000,
-          "markdownDescription": "Maximum bytes read from each selected source file.",
-          "scope": "resource"
-        },
-        "readmeGeneratorAi.maxTotalBytes": {
-          "type": "number",
-          "default": 160000,
-          "minimum": 20000,
-          "maximum": 400000,
-          "markdownDescription": "Maximum combined source bytes sent to Azure OpenAI.",
+          "markdownDescription": "Maximo de bytes leidos de cada archivo seleccionado antes de aplicar el presupuesto total de tokens.",
           "scope": "resource"
         }
       }

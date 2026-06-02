@@ -1,4 +1,4 @@
-import { SelectedFile } from '../scanner/types';
+import { RepositoryMap, SelectedFile } from '../scanner/types';
 import { ReadmeData } from '../types';
 import { buildFieldInstructionText, getFieldInstruction } from './fieldInstructions';
 
@@ -85,7 +85,7 @@ export const emptyReadmeData: ReadmeData = {
   related_projects: []
 };
 
-export function buildExtractionPrompt(files: SelectedFile[], workspaceName: string): string {
+export function buildExtractionPrompt(files: SelectedFile[], workspaceName: string, repositoryMap: RepositoryMap): string {
   const fileBlocks = files.map((file) => {
     const truncation = file.truncated ? '\n[TRUNCATED]' : '';
     return [
@@ -127,6 +127,9 @@ export function buildExtractionPrompt(files: SelectedFile[], workspaceName: stri
     '',
     `Nombre del workspace: ${workspaceName}`,
     '',
+    'Mapa estructural del repositorio:',
+    formatRepositoryMap(repositoryMap, files.length),
+    '',
     'Campos esperados:',
     JSON.stringify(emptyReadmeData, null, 2),
     '',
@@ -135,6 +138,61 @@ export function buildExtractionPrompt(files: SelectedFile[], workspaceName: stri
     '',
     'Archivos seleccionados:',
     fileBlocks.join('\n\n')
+  ].join('\n');
+}
+
+function formatRepositoryMap(repositoryMap: RepositoryMap, selectedFileCount: number): string {
+  const technologies = repositoryMap.technologies.length
+    ? repositoryMap.technologies.map((tech) => `- ${tech.name} (${tech.evidence.join(', ')})`).join('\n')
+    : '- No detectadas';
+  const entrypoints = repositoryMap.entrypoints.length
+    ? repositoryMap.entrypoints.map((entrypoint) => `- ${entrypoint}`).join('\n')
+    : '- No detectados';
+  const modules = repositoryMap.modules.length
+    ? repositoryMap.modules
+        .map((module) => `- ${module.path} [${module.kind}, ${module.fileCount} archivos]`)
+        .join('\n')
+    : '- No detectados';
+  const documentation = repositoryMap.documentation.length
+    ? repositoryMap.documentation.map((doc) => `- ${doc}`).join('\n')
+    : '- No detectada';
+  const structure = repositoryMap.structure.length
+    ? repositoryMap.structure
+        .map((entry) => {
+          const detail = entry.kind === 'directory'
+            ? `${entry.fileCount || 0} archivos`
+            : `${entry.size || 0} bytes`;
+          return `- ${entry.path} [${entry.kind}, ${detail}]`;
+        })
+        .join('\n')
+    : '- No detectada';
+  const discarded = repositoryMap.discardedSummary.length
+    ? repositoryMap.discardedSummary
+        .map((item) => `- ${item.reason} (${item.stage || 'local'}): ${item.count} archivos; ejemplos: ${item.examples.join(', ')}`)
+        .join('\n')
+    : '- Sin descartes locales adicionales';
+
+  return [
+    `Workspace: ${repositoryMap.workspaceName}`,
+    `Estadisticas: ${repositoryMap.stats.candidateFiles} archivos candidatos, ${selectedFileCount} archivos seleccionados, ${repositoryMap.stats.sourceFiles} fuente, ${repositoryMap.stats.documentationFiles} documentacion, ${repositoryMap.stats.configurationFiles} configuracion, ${repositoryMap.stats.totalBytes} bytes candidatos.`,
+    '',
+    'Tecnologias detectadas:',
+    technologies,
+    '',
+    'Entrypoints probables:',
+    entrypoints,
+    '',
+    'Modulos/carpetas principales:',
+    modules,
+    '',
+    'Documentacion existente:',
+    documentation,
+    '',
+    'Estructura del repositorio:',
+    structure,
+    '',
+    'Resumen de archivos descartados:',
+    discarded
   ].join('\n');
 }
 

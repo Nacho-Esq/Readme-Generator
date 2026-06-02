@@ -1,3 +1,5 @@
+import type { ReadDepth } from './scanner/types';
+
 export interface EnvVariableInfo {
   name: string;
   description: string;
@@ -120,7 +122,6 @@ export interface ExtensionSettings {
   endpoint: string;
   deployment: string;
   templatePath: string;
-  maxFiles: number;
+  readDepth: ReadDepth;
   maxBytesPerFile: number;
-  maxTotalBytes: number;
 }

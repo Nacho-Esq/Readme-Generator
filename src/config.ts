@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import type { ReadDepth } from './scanner/types';
 import { ExtensionSettings } from './types';
 
 export function getSettings(): ExtensionSettings {
@@ -8,10 +9,32 @@ export function getSettings(): ExtensionSettings {
     endpoint: config.get<string>('endpoint', '').trim(),
     deployment: config.get<string>('deployment', 'test-plantillas-gpt-5.2-codex').trim(),
     templatePath: config.get<string>('templatePath', '').trim(),
-    maxFiles: config.get<number>('maxFiles', 24),
-    maxBytesPerFile: config.get<number>('maxBytesPerFile', 18_000),
-    maxTotalBytes: config.get<number>('maxTotalBytes', 160_000)
+    readDepth: normalizeReadDepth(config.get<string>('readDepth', 'básico')),
+    maxBytesPerFile: config.get<number>('maxBytesPerFile', 18_000)
   };
+}
+
+export function getReadDepthTokenBudget(readDepth: ReadDepth): number {
+  switch (readDepth) {
+    case 'profundo':
+      return 180_000;
+    case 'detallado':
+      return 90_000;
+    case 'básico':
+    default:
+      return 30_000;
+  }
+}
+
+function normalizeReadDepth(value: string | undefined): ReadDepth {
+  const normalized = (value || '').trim().toLowerCase();
+  if (normalized === 'deep' || normalized === 'profundo') {
+    return 'profundo';
+  }
+  if (normalized === 'detailed' || normalized === 'detallado') {
+    return 'detallado';
+  }
+  return 'básico';
 }
 
 export async function ensureConfigured(settings: ExtensionSettings): Promise<boolean> {

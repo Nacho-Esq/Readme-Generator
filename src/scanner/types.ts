@@ -15,3 +15,80 @@ export interface SelectedFile extends RankedFile {
   content: string;
   truncated: boolean;
 }
+
+export type ReadDepth = 'básico' | 'detallado' | 'profundo';
+
+export type FileKind = 'source' | 'docs' | 'config' | 'infra' | 'template' | 'test' | 'generated' | 'other';
+
+export interface FileOverview extends RankedFile {
+  extension: string;
+  modulePath: string;
+  kind: FileKind;
+  isEntrypoint: boolean;
+  isTooLarge: boolean;
+  importsExports: string[];
+  exportedFunctions: string[];
+  packageScripts: string[];
+}
+
+export interface DiscardedFileSummary {
+  reason: string;
+  count: number;
+  examples: string[];
+  stage?: 'local' | 'llm' | 'fallback';
+}
+
+export interface FileSelectionItem {
+  path: string;
+  reason: string;
+}
+
+export interface FileSelectionResult {
+  selectedFiles: FileSelectionItem[];
+  warnings: string[];
+}
+
+export interface FileInventory {
+  selectorInventory: FileOverview[];
+  fallbackRanking: FileOverview[];
+  discardedSummary: DiscardedFileSummary[];
+}
+
+export interface DetectedTechnology {
+  name: string;
+  evidence: string[];
+}
+
+export interface DetectedModule {
+  name: string;
+  path: string;
+  fileCount: number;
+  kind: 'source' | 'docs' | 'infra' | 'config' | 'templates' | 'other';
+}
+
+export interface ProjectStats {
+  candidateFiles: number;
+  sourceFiles: number;
+  documentationFiles: number;
+  configurationFiles: number;
+  totalBytes: number;
+}
+
+export interface RepositoryStructureEntry {
+  path: string;
+  kind: 'directory' | 'file';
+  depth: number;
+  fileCount?: number;
+  size?: number;
+}
+
+export interface RepositoryMap {
+  workspaceName: string;
+  technologies: DetectedTechnology[];
+  entrypoints: string[];
+  modules: DetectedModule[];
+  documentation: string[];
+  structure: RepositoryStructureEntry[];
+  discardedSummary: DiscardedFileSummary[];
+  stats: ProjectStats;
+}

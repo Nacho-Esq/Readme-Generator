@@ -5,6 +5,7 @@ import { CandidateFile, SelectedFile, RankedFile } from './types';
 const IGNORE_DIRECTORIES = new Set([
   'node_modules',
   '.git',
+  '.readme-generator-ai',
   'dist',
   'build',
   'venv',

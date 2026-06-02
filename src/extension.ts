@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { AzureResponsesClient } from './azure/azureResponsesClient';
 import { ensureConfigured, getReadDepthTokenBudget, getSettings } from './config';
-import { buildFileSelectionPrompt } from './prompt/fileSelectionPrompt';
+import { buildFileSelectionMetadata, buildFileSelectionPrompt } from './prompt/fileSelectionPrompt';
 import { buildExtractionPrompt } from './prompt/promptBuilder';
 import {
   analyzeReadmeData,
@@ -13,8 +13,15 @@ import {
 import { buildFileInventory } from './scanner/fileRanker';
 import { readSelectedFilesByTokenBudget, scanRepository } from './scanner/fileScanner';
 import { analyzeRepository } from './scanner/repositoryAnalyzer';
-import { DiscardedFileSummary, FileOverview, FileSelectionResult } from './scanner/types';
+import { DiscardedFileSummary, FileOverview, FileSelectionItem, FileSelectionResult } from './scanner/types';
 import { TemplateRenderer } from './template/templateRenderer';
+import {
+  buildFinalReadFileTrace,
+  createGenerationTrace,
+  GenerationTrace,
+  openLastGenerationTrace,
+  saveGenerationTrace
+} from './trace/generationTrace';
 import { EditFormPanel } from './ui/editFormPanel';
 import { PreviewPanel } from './ui/previewPanel';
 import { asErrorMessage } from './utils/errors';
@@ -26,6 +33,11 @@ export function activate(context: vscode.ExtensionContext): void {
     generateReadme(context)
   );
   context.subscriptions.push(command);
+
+  const openTraceCommand = vscode.commands.registerCommand('readmeGeneratorAi.openLastTrace', () =>
+    openLastTrace()
+  );
+  context.subscriptions.push(openTraceCommand);
 
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   statusBarItem.text = '$(book) Generate README';
@@ -61,25 +73,39 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
 
     const client = new AzureResponsesClient(settings);
     const tokenBudget = getReadDepthTokenBudget(settings.readDepth);
+    const trace = createGenerationTrace(
+      workspaceFolder.name,
+      settings.readDepth,
+      tokenBudget,
+      settings.maxBytesPerFile
+    );
     const inventory = await buildFileInventory(candidates);
     let repositoryMap = await analyzeRepository(candidates, workspaceFolder, inventory.discardedSummary);
+    trace.localDiscardedSummary = inventory.discardedSummary;
+    trace.repositoryMap = repositoryMap;
+    trace.selectorInventory = buildFileSelectionMetadata(inventory.selectorInventory);
 
     vscode.window.setStatusBarMessage(
       `README Generator AI: seleccionando archivos con LLM (${settings.readDepth})...`,
       4_000
     );
     const selectionPrompt = buildFileSelectionPrompt(repositoryMap, inventory.selectorInventory, tokenBudget);
+    trace.selectionPrompt = selectionPrompt;
     const selection = await selectFilesForDetailedRead(
       client,
       selectionPrompt,
       inventory.selectorInventory,
       inventory.fallbackRanking
     );
+    trace.llmSelection = selection.llmSelection;
+    trace.llmDiscardedSummary = selection.discardedSummary;
+    trace.usedFallback = selection.usedFallback;
     repositoryMap = await analyzeRepository(
       candidates,
       workspaceFolder,
       inventory.discardedSummary.concat(selection.discardedSummary)
     );
+    trace.repositoryMap = repositoryMap;
 
     const selectedFiles = await readSelectedFilesByTokenBudget(
       selection.ranking,
@@ -90,11 +116,16 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
       vscode.window.showErrorMessage('No se pudieron leer los archivos seleccionados.');
       return;
     }
+    trace.finalReadFiles = buildFinalReadFileTrace(selectedFiles);
+    trace.warnings = selection.warnings;
+    await saveTraceIfEnabled(workspaceFolder, settings.debugTrace, trace);
 
     vscode.window.setStatusBarMessage(`README Generator AI: analizando ${selectedFiles.length} archivos...`, 4_000);
     const prompt = buildExtractionPrompt(selectedFiles, workspaceFolder.name, repositoryMap);
     const extraction = await client.extractReadmeData(prompt);
     const warnings = selection.warnings.concat(extraction.warnings);
+    trace.warnings = warnings;
+    await saveTraceIfEnabled(workspaceFolder, settings.debugTrace, trace);
 
     const renderer = new TemplateRenderer(context.extensionUri);
     const templatePath = await renderer.resolveTemplatePath(settings.templatePath);
@@ -140,8 +171,10 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
 
 interface DetailedReadSelection {
   ranking: FileOverview[];
+  llmSelection: FileSelectionItem[];
   discardedSummary: DiscardedFileSummary[];
   warnings: string[];
+  usedFallback: boolean;
 }
 
 async function selectFilesForDetailedRead(
@@ -159,12 +192,15 @@ async function selectFilesForDetailedRead(
 
     return {
       ranking: validated.ranking,
+      llmSelection: result.selectedFiles,
       discardedSummary: [summarizeLlmDiscarded(inventory, validated.ranking)],
-      warnings: result.warnings.concat(validated.warnings)
+      warnings: result.warnings.concat(validated.warnings),
+      usedFallback: false
     };
   } catch (error) {
     return {
       ranking: fallbackRanking,
+      llmSelection: [],
       discardedSummary: [
         {
           reason: 'fallback to local heuristic ranking',
@@ -173,7 +209,8 @@ async function selectFilesForDetailedRead(
           stage: 'fallback'
         }
       ],
-      warnings: [`No se pudo usar el selector LLM de archivos; se uso el ranking local: ${asErrorMessage(error)}`]
+      warnings: [`No se pudo usar el selector LLM de archivos; se uso el ranking local: ${asErrorMessage(error)}`],
+      usedFallback: true
     };
   }
 }
@@ -225,4 +262,28 @@ function getActiveWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
     }
   }
   return vscode.workspace.workspaceFolders?.[0];
+}
+
+async function openLastTrace(): Promise<void> {
+  const workspaceFolder = getActiveWorkspaceFolder();
+  if (!workspaceFolder) {
+    vscode.window.showErrorMessage('Abre un repositorio local en VS Code antes de abrir la traza.');
+    return;
+  }
+  await openLastGenerationTrace(workspaceFolder);
+}
+
+async function saveTraceIfEnabled(
+  workspaceFolder: vscode.WorkspaceFolder,
+  enabled: boolean,
+  trace: GenerationTrace
+): Promise<void> {
+  if (!enabled) {
+    return;
+  }
+  try {
+    await saveGenerationTrace(workspaceFolder, trace);
+  } catch (error) {
+    vscode.window.showWarningMessage(`No se pudo guardar la traza de README Generator AI: ${asErrorMessage(error)}`);
+  }
 }

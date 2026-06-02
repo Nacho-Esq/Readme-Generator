@@ -124,4 +124,5 @@ export interface ExtensionSettings {
   templatePath: string;
   readDepth: ReadDepth;
   maxBytesPerFile: number;
+  debugTrace: boolean;
 }

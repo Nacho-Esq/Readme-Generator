@@ -23,11 +23,15 @@ export function buildFileSelectionPrompt(
     formatRepositoryMapForSelection(repositoryMap),
     '',
     'Inventario compacto de archivos candidatos:',
-    JSON.stringify(inventory.map(toPromptOverview), null, 2),
+    JSON.stringify(buildFileSelectionMetadata(inventory), null, 2),
     '',
     'Formato esperado:',
     JSON.stringify({ selectedFiles: [{ path: 'src/example.ts', reason: 'reason' }], warnings: [] }, null, 2)
   ].join('\n');
+}
+
+export function buildFileSelectionMetadata(inventory: FileOverview[]): object[] {
+  return inventory.map(toPromptOverview);
 }
 
 export function getFileSelectionJsonSchema(): object {

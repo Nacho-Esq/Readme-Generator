@@ -12,7 +12,8 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:readmeGeneratorAi.generateReadme"
+    "onCommand:readmeGeneratorAi.generateReadme",
+    "onCommand:readmeGeneratorAi.openLastTrace"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -22,12 +23,21 @@
         "title": "Generate README",
         "category": "README Generator AI",
         "icon": "$(book)"
+      },
+      {
+        "command": "readmeGeneratorAi.openLastTrace",
+        "title": "Open Last Trace",
+        "category": "README Generator AI",
+        "icon": "$(output)"
       }
     ],
     "menus": {
       "commandPalette": [
         {
           "command": "readmeGeneratorAi.generateReadme"
+        },
+        {
+          "command": "readmeGeneratorAi.openLastTrace"
         }
       ],
       "explorer/title": [
@@ -86,6 +96,12 @@
           "minimum": 2000,
           "maximum": 60000,
           "markdownDescription": "Maximo de bytes leidos de cada archivo seleccionado antes de aplicar el presupuesto total de tokens.",
+          "scope": "resource"
+        },
+        "readmeGeneratorAi.debugTrace": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Guarda una traza local de la seleccion de archivos en `.readme-generator-ai/last-run.json` y `.readme-generator-ai/last-run.md`.",
           "scope": "resource"
         }
       }

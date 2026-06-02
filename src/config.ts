@@ -10,7 +10,8 @@ export function getSettings(): ExtensionSettings {
     deployment: config.get<string>('deployment', 'test-plantillas-gpt-5.2-codex').trim(),
     templatePath: config.get<string>('templatePath', '').trim(),
     readDepth: normalizeReadDepth(config.get<string>('readDepth', 'básico')),
-    maxBytesPerFile: config.get<number>('maxBytesPerFile', 18_000)
+    maxBytesPerFile: config.get<number>('maxBytesPerFile', 18_000),
+    debugTrace: config.get<boolean>('debugTrace', true)
   };
 }
 

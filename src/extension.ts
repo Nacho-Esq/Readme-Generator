@@ -23,7 +23,6 @@ import {
   saveGenerationTrace
 } from './trace/generationTrace';
 import { EditFormPanel } from './ui/editFormPanel';
-import { PreviewPanel } from './ui/previewPanel';
 import { asErrorMessage } from './utils/errors';
 
 let statusBarItem: vscode.StatusBarItem | undefined;
@@ -134,30 +133,24 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
     const initialReviewData = prepareDataForReview(extraction.data, initialRenderOptions);
     const initialMarkdown = await renderer.render(templatePath, initialReviewData, initialRenderOptions);
 
-    const previewAction = await PreviewPanel.show(
+    const editResult = await EditFormPanel.show(
+      initialReviewData,
       initialMarkdown,
       warnings,
       context.extensionUri,
       review,
       initialRenderOptions,
-      async (renderOptions) => {
-        const completedOptions = completeRenderOptions(extraction.data, renderOptions);
-        const reviewData = prepareDataForReview(extraction.data, completedOptions);
-        return renderer.render(templatePath, reviewData, completedOptions);
+      async (data, renderOptions) => {
+        const completedOptions = completeRenderOptions(data, renderOptions);
+        return renderer.render(templatePath, data, completedOptions);
       }
     );
-    if (previewAction.action !== 'edit') {
-      return;
-    }
-
-    const renderOptions = completeRenderOptions(extraction.data, previewAction.renderOptions);
-    const reviewData = prepareDataForReview(extraction.data, renderOptions);
-    const editResult = await EditFormPanel.show(reviewData, warnings, context.extensionUri, renderOptions);
     if (editResult.action !== 'save') {
       return;
     }
 
-    const finalMarkdown = await renderer.render(templatePath, editResult.data, editResult.renderOptions);
+    const finalRenderOptions = completeRenderOptions(editResult.data, editResult.renderOptions);
+    const finalMarkdown = await renderer.render(templatePath, editResult.data, finalRenderOptions);
     const outputUri = vscode.Uri.file(path.join(workspaceFolder.uri.fsPath, 'README.generated.md'));
     await vscode.workspace.fs.writeFile(outputUri, new TextEncoder().encode(finalMarkdown));
 

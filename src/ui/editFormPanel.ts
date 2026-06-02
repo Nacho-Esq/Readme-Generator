@@ -1,22 +1,28 @@
 import * as vscode from 'vscode';
-import { FieldDefinition, FormSection, FORM_SECTIONS, fieldKey } from '../readme/fieldMetadata';
-import { FILL_PLACEHOLDER, isPlaceholderValue, RenderOptions } from '../readme/reviewModel';
+import { FieldDefinition, FORM_SECTIONS, fieldKey } from '../readme/fieldMetadata';
+import { FILL_PLACEHOLDER, isPlaceholderValue, RenderOptions, ReviewModel } from '../readme/reviewModel';
 import { ReadmeData } from '../types';
 
 type EditResult =
   | { action: 'save'; data: ReadmeData; renderOptions: RenderOptions }
   | { action: 'cancel' };
 
+type RenderPreview = (data: ReadmeData, renderOptions: RenderOptions) => Promise<string>;
+type PendingField = FieldDefinition & { key: string };
+
 export class EditFormPanel {
   static show(
     data: ReadmeData,
+    markdown: string,
     warnings: string[],
     extensionUri: vscode.Uri,
-    renderOptions: RenderOptions
+    review: ReviewModel,
+    renderOptions: RenderOptions,
+    renderPreview: RenderPreview
   ): Promise<EditResult> {
     const panel = vscode.window.createWebviewPanel(
       'readmeGeneratorAiEdit',
-      'README Fields',
+      'README Review',
       vscode.ViewColumn.Beside,
       {
         enableScripts: true,
@@ -26,21 +32,37 @@ export class EditFormPanel {
 
     return new Promise((resolve, reject) => {
       let resolved = false;
+      let currentRenderOptions = renderOptions;
 
       try {
-        panel.webview.html = getEditHtml(panel.webview, data, warnings, renderOptions);
+        panel.webview.html = getEditHtml(panel.webview, data, markdown, warnings, review, renderOptions);
       } catch (error) {
         resolved = true;
         reject(error);
         return;
       }
 
-      const subscription = panel.webview.onDidReceiveMessage((message) => {
-        if (message?.command === 'save') {
-          cleanup({ action: 'save', data: message.data as ReadmeData, renderOptions });
-        }
-        if (message?.command === 'cancel') {
+      const subscription = panel.webview.onDidReceiveMessage(async (message) => {
+        try {
+          if (message?.command === 'preview') {
+            currentRenderOptions = normalizeRenderOptions(message.renderOptions);
+            const nextMarkdown = await renderPreview(message.data as ReadmeData, currentRenderOptions);
+            await panel.webview.postMessage({ command: 'previewMarkdown', markdown: nextMarkdown });
+          }
+          if (message?.command === 'save') {
+            currentRenderOptions = normalizeRenderOptions(message.renderOptions);
+            cleanup({
+              action: 'save',
+              data: message.data as ReadmeData,
+              renderOptions: currentRenderOptions
+            });
+          }
+          if (message?.command === 'cancel') {
+            cleanup({ action: 'cancel' });
+          }
+        } catch (error) {
           cleanup({ action: 'cancel' });
+          reject(error);
         }
       });
 
@@ -67,19 +89,19 @@ export class EditFormPanel {
 function getEditHtml(
   webview: vscode.Webview,
   data: ReadmeData,
+  markdown: string,
   warnings: string[],
+  review: ReviewModel,
   renderOptions: RenderOptions
 ): string {
   const nonce = getNonce();
-  const visibleSections = FORM_SECTIONS.map((section) => ({
-    ...section,
-    fields: section.fields.filter((field) => !renderOptions.omitFields[fieldKey(field.path)])
-  })).filter((section) => section.fields.length > 0);
-  const sections = visibleSections.map((section) => sectionEditor(section, data)).join('');
+  const pendingFields = getPendingFields(review);
   const warningItems = warnings.length
     ? warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join('')
-    : '<li>Revisa los campos marcados antes de guardar.</li>';
-  const fields = visibleSections.flatMap((section) => section.fields);
+    : '<li>No hay advertencias del modelo.</li>';
+  const pendingContent = pendingFields.length
+    ? pendingFields.map((field) => fieldEditor(field, data)).join('')
+    : '<p class="muted">No hay campos pendientes de completar.</p>';
 
   return `<!DOCTYPE html>
 <html lang="es">
@@ -87,23 +109,32 @@ function getEditHtml(
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>README Fields</title>
+  <title>README Review</title>
   <style>
     body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); background: var(--vscode-editor-background); padding: 20px; }
     .toolbar { display: flex; gap: 8px; position: sticky; top: 0; background: var(--vscode-editor-background); padding-bottom: 12px; border-bottom: 1px solid var(--vscode-panel-border); z-index: 2; }
     button { color: var(--vscode-button-foreground); background: var(--vscode-button-background); border: 0; padding: 8px 12px; cursor: pointer; border-radius: 2px; }
     button.secondary { color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); }
-    .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+    button.danger { color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); }
+    .layout { display: grid; grid-template-columns: minmax(280px, 420px) minmax(0, 1fr); gap: 18px; align-items: start; }
     section { border: 1px solid var(--vscode-panel-border); margin: 16px 0; padding: 12px; }
-    fieldset { border: 0; margin: 12px 0; padding: 0; }
+    h2 { margin-top: 0; font-size: 16px; }
+    fieldset { border: 1px solid var(--vscode-panel-border); margin: 12px 0; padding: 12px; }
+    fieldset.omitted { display: none; }
     label { display: block; font-weight: 600; margin-bottom: 6px; }
     textarea { width: 100%; box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); padding: 8px; font-family: var(--vscode-editor-font-family); min-height: 82px; resize: vertical; }
     .missing label::after { content: " pendiente"; color: var(--vscode-errorForeground); font-weight: 700; text-transform: uppercase; }
     .missing textarea { border-color: var(--vscode-errorForeground); color: var(--vscode-errorForeground); font-weight: 700; }
     .essential label::before { content: "Esencial "; display: inline-block; margin-right: 6px; color: var(--vscode-errorForeground); font-size: 11px; text-transform: uppercase; }
     .optional label::before { content: "Opcional "; display: inline-block; margin-right: 6px; color: var(--vscode-descriptionForeground); font-size: 11px; text-transform: uppercase; }
-    .hint { color: var(--vscode-descriptionForeground); font-size: 12px; margin-top: 4px; }
-    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+    .field-header { display: flex; gap: 8px; justify-content: space-between; align-items: start; }
+    .field-header label { margin-right: 8px; }
+    .hint, .muted { color: var(--vscode-descriptionForeground); }
+    .hint { font-size: 12px; margin-top: 4px; }
+    ul { padding-left: 20px; }
+    pre { white-space: pre-wrap; word-break: break-word; border: 1px solid var(--vscode-panel-border); padding: 16px; background: var(--vscode-textCodeBlock-background); min-height: 70vh; }
+    .placeholder { color: var(--vscode-errorForeground); font-weight: 800; background: color-mix(in srgb, var(--vscode-errorForeground) 16%, transparent); }
+    @media (max-width: 1000px) { .layout { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -111,17 +142,35 @@ function getEditHtml(
     <button id="save">Guardar README.generated.md</button>
     <button id="cancel" class="secondary">Cancelar</button>
   </div>
-  <section>
-    <h2>Campos a revisar</h2>
-    <ul>${warningItems}</ul>
-  </section>
-  <div class="grid">${sections}</div>
+  <div class="layout">
+    <div>
+      <section>
+        <h2>Advertencias del generador</h2>
+        <ul>${warningItems}</ul>
+      </section>
+      <section>
+        <h2>Campos pendientes</h2>
+        ${pendingContent}
+      </section>
+    </div>
+    <section>
+      <h2>Markdown generado</h2>
+      <pre id="markdown">${renderMarkdown(markdown)}</pre>
+    </section>
+  </div>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
-    const fields = ${JSON.stringify(fields)};
+    const baseData = ${JSON.stringify(data)};
+    const fields = ${JSON.stringify(pendingFields)};
+    const renderOptions = ${JSON.stringify(renderOptions)};
+
+    function clone(value) {
+      return JSON.parse(JSON.stringify(value));
+    }
 
     function lines(id) {
-      return document.getElementById(id).value.split('\\n').map((line) => line.trim()).filter(Boolean);
+      const element = document.getElementById(id);
+      return element ? element.value.split('\\n').map((line) => line.trim()).filter(Boolean) : [];
     }
 
     function setPath(target, path, value) {
@@ -145,15 +194,21 @@ function getEditHtml(
     }
 
     function collect() {
-      const data = {};
+      const data = clone(baseData);
       for (const field of fields) {
-        const id = field.path;
+        if (renderOptions.omitFields[field.key]) {
+          continue;
+        }
+        const element = document.getElementById(field.path);
+        if (!element) {
+          continue;
+        }
         if (field.kind === 'list') {
-          setPath(data, field.path, lines(id));
+          setPath(data, field.path, lines(field.path));
         } else if (field.kind === 'env') {
-          setPath(data, field.path, collectEnv(id));
+          setPath(data, field.path, collectEnv(field.path));
         } else {
-          setPath(data, field.path, document.getElementById(id).value.trim());
+          setPath(data, field.path, element.value.trim());
         }
       }
       return data;
@@ -161,15 +216,67 @@ function getEditHtml(
 
     function markMissing() {
       for (const field of fields) {
+        if (renderOptions.omitFields[field.key]) {
+          continue;
+        }
         const element = document.getElementById(field.path);
+        if (!element) {
+          continue;
+        }
         const fieldset = element.closest('fieldset');
         const value = element.value.trim();
         fieldset.classList.toggle('missing', value.length === 0 || value.includes('${FILL_PLACEHOLDER}'));
       }
     }
 
-    document.querySelectorAll('textarea').forEach((element) => element.addEventListener('input', markMissing));
-    document.getElementById('save').addEventListener('click', () => vscode.postMessage({ command: 'save', data: collect() }));
+    function escapeHtml(value) {
+      return value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function renderMarkdown(value) {
+      return escapeHtml(value).replace(/\\*\\*RELLENAR POR USUARIO\\*\\*/g, '<span class="placeholder">**RELLENAR POR USUARIO**</span>');
+    }
+
+    let previewTimer;
+    function requestPreview() {
+      clearTimeout(previewTimer);
+      previewTimer = setTimeout(() => {
+        vscode.postMessage({ command: 'preview', data: collect(), renderOptions });
+      }, 150);
+    }
+
+    document.querySelectorAll('textarea').forEach((element) => {
+      element.addEventListener('input', () => {
+        markMissing();
+        requestPreview();
+      });
+    });
+
+    document.querySelectorAll('[data-action="discard"]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const fieldset = button.closest('fieldset');
+        const key = fieldset.getAttribute('data-field-key');
+        renderOptions.omitFields[key] = true;
+        fieldset.classList.add('omitted');
+        requestPreview();
+      });
+    });
+
+    window.addEventListener('message', (event) => {
+      const message = event.data;
+      if (message?.command === 'previewMarkdown') {
+        document.getElementById('markdown').innerHTML = renderMarkdown(message.markdown);
+      }
+    });
+
+    document.getElementById('save').addEventListener('click', () => {
+      vscode.postMessage({ command: 'save', data: collect(), renderOptions });
+    });
     document.getElementById('cancel').addEventListener('click', () => vscode.postMessage({ command: 'cancel' }));
     markMissing();
   </script>
@@ -177,23 +284,49 @@ function getEditHtml(
 </html>`;
 }
 
-function sectionEditor(section: FormSection, data: ReadmeData): string {
-  return `<section><h2>${escapeHtml(section.title)}</h2>${section.fields.map((field) => fieldEditor(field, data)).join('')}</section>`;
+function getPendingFields(review: ReviewModel): PendingField[] {
+  const missingPaths = new Set([
+    ...review.essentialMissing.map((field) => field.path),
+    ...review.optionalMissing.map((field) => field.path)
+  ]);
+  return FORM_SECTIONS
+    .flatMap((section) => section.fields)
+    .filter((field) => missingPaths.has(field.path))
+    .map((field) => ({ ...field, key: fieldKey(field.path) }));
 }
 
 function fieldEditor(field: FieldDefinition, data: ReadmeData): string {
   const rawValue = getPathValue(data, field.path);
   const value = formatValue(rawValue, field);
-  const hint = field.hint || (field.kind === 'list' ? 'Un valor por línea' : '');
+  const hint = field.hint || (field.kind === 'list' ? 'Un valor por linea' : '');
+  const key = fieldKey(field.path);
   const classes = [
     field.importance,
     value.split('\n').some((line) => isPlaceholderValue(line) || line.includes(FILL_PLACEHOLDER)) ? 'missing' : ''
   ].filter(Boolean).join(' ');
-  return `<fieldset class="${escapeAttribute(classes)}">
-    <label for="${escapeAttribute(field.path)}">${escapeHtml(field.label)}</label>
+  const discardButton = field.importance === 'optional'
+    ? '<button type="button" class="danger" data-action="discard">Descartar campo</button>'
+    : '';
+
+  return `<fieldset class="${escapeAttribute(classes)}" data-field-key="${escapeAttribute(key)}">
+    <div class="field-header">
+      <label for="${escapeAttribute(field.path)}">${escapeHtml(field.label)}</label>
+      ${discardButton}
+    </div>
     <textarea id="${escapeAttribute(field.path)}">${escapeHtml(value)}</textarea>
     ${hint ? `<div class="hint">${escapeHtml(hint)}</div>` : ''}
   </fieldset>`;
+}
+
+function normalizeRenderOptions(value: unknown): RenderOptions {
+  if (!value || typeof value !== 'object') {
+    return { omitFields: {}, omitSections: {} };
+  }
+  const record = value as Partial<RenderOptions>;
+  return {
+    omitFields: record.omitFields || {},
+    omitSections: record.omitSections || {}
+  };
 }
 
 function getPathValue(value: unknown, path: string): unknown {
@@ -222,6 +355,10 @@ function formatValue(value: unknown, field: FieldDefinition): string {
     return value.map(String).join('\n');
   }
   return typeof value === 'string' ? value : '';
+}
+
+function renderMarkdown(markdown: string): string {
+  return escapeHtml(markdown).replace(/\*\*RELLENAR POR USUARIO\*\*/g, '<span class="placeholder">**RELLENAR POR USUARIO**</span>');
 }
 
 function escapeHtml(value: string): string {

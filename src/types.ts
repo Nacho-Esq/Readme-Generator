@@ -121,8 +121,8 @@ export interface ExtensionSettings {
   apiKey: string;
   endpoint: string;
   deployment: string;
+  preSelectionDeployment?: string;
   templatePath: string;
   readDepth: ReadDepth;
-  maxBytesPerFile: number;
   debugTrace: boolean;
 }

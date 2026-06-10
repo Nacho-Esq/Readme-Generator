@@ -1,8 +1,8 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { AzureResponsesClient } from './azure/azureResponsesClient';
-import { ensureConfigured, getReadDepthTokenBudget, getSettings } from './config';
-import { buildFileSelectionMetadata, buildFileSelectionPrompt } from './prompt/fileSelectionPrompt';
+import { ensureConfigured, getPreSelectionDeployment, getReadDepthTokenBudget, getSettings } from './config';
+import { buildContentSelectionPrompt, buildFileSelectionMetadata } from './prompt/fileSelectionPrompt';
 import { buildExtractionPrompt } from './prompt/promptBuilder';
 import {
   analyzeReadmeData,
@@ -11,7 +11,7 @@ import {
   prepareDataForReview
 } from './readme/reviewModel';
 import { buildFileInventory } from './scanner/fileRanker';
-import { readSelectedFilesByTokenBudget, scanRepository } from './scanner/fileScanner';
+import { PRE_SELECTION_MAX_BYTES_PER_FILE, readAllCandidateFiles, readSelectedFilesByTokenBudget, scanRepository } from './scanner/fileScanner';
 import { analyzeRepository } from './scanner/repositoryAnalyzer';
 import { DiscardedFileSummary, FileOverview, FileSelectionItem, FileSelectionResult } from './scanner/types';
 import { TemplateRenderer } from './template/templateRenderer';
@@ -75,8 +75,7 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
     const trace = createGenerationTrace(
       workspaceFolder.name,
       settings.readDepth,
-      tokenBudget,
-      settings.maxBytesPerFile
+      tokenBudget
     );
     const inventory = await buildFileInventory(candidates);
     let repositoryMap = await analyzeRepository(candidates, workspaceFolder, inventory.discardedSummary);
@@ -85,14 +84,23 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
     trace.selectorInventory = buildFileSelectionMetadata(inventory.selectorInventory);
 
     vscode.window.setStatusBarMessage(
-      `README Generator AI: seleccionando archivos con LLM (${settings.readDepth})...`,
+      `README Generator AI: leyendo repositorio completo (${inventory.selectorInventory.length} archivos)...`,
+      6_000
+    );
+    const preSelectionDeployment = getPreSelectionDeployment(settings);
+    const allCandidateFiles = await readAllCandidateFiles(inventory.selectorInventory, PRE_SELECTION_MAX_BYTES_PER_FILE);
+    const contentPrompt = buildContentSelectionPrompt(repositoryMap, allCandidateFiles);
+    trace.preSelectionDeployment = preSelectionDeployment;
+    trace.preSelectionFilesSentCount = allCandidateFiles.length;
+    trace.selectionPrompt = contentPrompt;
+    vscode.window.setStatusBarMessage(
+      `README Generator AI: seleccionando archivos clave con modelo ligero...`,
       4_000
     );
-    const selectionPrompt = buildFileSelectionPrompt(repositoryMap, inventory.selectorInventory, tokenBudget);
-    trace.selectionPrompt = selectionPrompt;
     const selection = await selectFilesForDetailedRead(
       client,
-      selectionPrompt,
+      contentPrompt,
+      preSelectionDeployment,
       inventory.selectorInventory,
       inventory.fallbackRanking
     );
@@ -108,7 +116,7 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
 
     const selectedFiles = await readSelectedFilesByTokenBudget(
       selection.ranking,
-      settings.maxBytesPerFile,
+      PRE_SELECTION_MAX_BYTES_PER_FILE,
       tokenBudget
     );
     if (selectedFiles.length === 0) {
@@ -173,11 +181,12 @@ interface DetailedReadSelection {
 async function selectFilesForDetailedRead(
   client: AzureResponsesClient,
   prompt: string,
+  deploymentOverride: string,
   inventory: FileOverview[],
   fallbackRanking: FileOverview[]
 ): Promise<DetailedReadSelection> {
   try {
-    const result = await client.selectImportantFiles(prompt);
+    const result = await client.preSelectImportantFiles(prompt, deploymentOverride);
     const validated = validateFileSelection(result, inventory);
     if (validated.ranking.length === 0) {
       throw new Error('El selector LLM no devolvio rutas validas.');

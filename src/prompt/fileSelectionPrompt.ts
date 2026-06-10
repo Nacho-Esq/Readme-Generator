@@ -1,34 +1,40 @@
-import { FileOverview, RepositoryMap } from '../scanner/types';
+import { FileOverview, RepositoryMap, SelectedFile } from '../scanner/types';
 
-export function buildFileSelectionPrompt(
+export function buildContentSelectionPrompt(
   repositoryMap: RepositoryMap,
-  inventory: FileOverview[],
-  maxDetailedTokens: number
+  files: SelectedFile[]
 ): string {
+  const fileContents = files
+    .map((f) => {
+      const header = `=== ${f.relativePath} (${f.size} bytes${f.truncated ? ', truncado' : ''}) ===`;
+      return `${header}\n${f.content}`;
+    })
+    .join('\n\n');
+
   return [
-    'Eres un analista experto de repositorios de software.',
-    'Tu tarea es seleccionar y ordenar los archivos que deben leerse en detalle para generar un README tecnico fiable.',
-    'No recibes contenido completo de archivos. Solo recibes un mapa del repositorio y metadatos compactos por archivo.',
+    'Eres un analizador de repositorios de software.',
+    'Tu tarea es ordenar los archivos del repositorio por importancia para generar un README tecnico.',
+    'Debes identificar donde esta la logica central del proyecto.',
     '',
     'Reglas:',
     '- Devuelve solo JSON valido con el schema solicitado.',
-    '- Selecciona solo rutas que aparezcan exactamente en el inventario.',
-    '- La estructura del repositorio y los descartes son solo contexto; no selecciones rutas descartadas si no aparecen en el inventario.',
-    '- Prioriza archivos que expliquen proposito, arquitectura, entrypoints, configuracion, instalacion, ejecucion, despliegue, prompts, agentes, RAG, herramientas, seguridad y observabilidad.',
-    '- Evita tests, fixtures y archivos enormes salvo que sean imprescindibles.',
-    '- Incluye manifiestos, documentacion principal y entrypoints cuando existan.',
-    `- El presupuesto aproximado para lectura detallada posterior es ${maxDetailedTokens} tokens; ordena de mas importante a menos importante.`,
+    '- Ordena selectedFiles de mas a menos importante.',
+    '- Descarta los archivos que no aporten informacion util para el README: tests, fixtures, assets, configuracion menor, archivos generados.',
+    '- Solo incluye en selectedFiles rutas que aparezcan exactamente en el contenido proporcionado.',
+    '- La razon debe ser muy breve (una frase) explicando por que ese archivo es relevante.',
+    '- NO extraigas informacion del proyecto. Solo identifica y ordena archivos por relevancia.',
     '',
     'Mapa estructural del repositorio:',
     formatRepositoryMapForSelection(repositoryMap),
     '',
-    'Inventario compacto de archivos candidatos:',
-    JSON.stringify(buildFileSelectionMetadata(inventory), null, 2),
+    'Contenido de los archivos candidatos:',
+    fileContents,
     '',
     'Formato esperado:',
-    JSON.stringify({ selectedFiles: [{ path: 'src/example.ts', reason: 'reason' }], warnings: [] }, null, 2)
+    JSON.stringify({ selectedFiles: [{ path: 'src/example.ts', reason: 'razon breve' }], warnings: [] }, null, 2)
   ].join('\n');
 }
+
 
 export function buildFileSelectionMetadata(inventory: FileOverview[]): object[] {
   return inventory.map(toPromptOverview);

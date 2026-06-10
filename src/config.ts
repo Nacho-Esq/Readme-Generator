@@ -2,17 +2,23 @@ import * as vscode from 'vscode';
 import type { ReadDepth } from './scanner/types';
 import { ExtensionSettings } from './types';
 
+export const DEFAULT_PRE_SELECTION_DEPLOYMENT = 'test-plantillas-gpt-5.4-nano';
+
 export function getSettings(): ExtensionSettings {
   const config = vscode.workspace.getConfiguration('readmeGeneratorAi');
   return {
     apiKey: config.get<string>('apiKey', '').trim(),
     endpoint: config.get<string>('endpoint', '').trim(),
     deployment: config.get<string>('deployment', 'test-plantillas-gpt-5.2-codex').trim(),
+    preSelectionDeployment: config.get<string>('preSelectionDeployment', '').trim(),
     templatePath: config.get<string>('templatePath', '').trim(),
     readDepth: normalizeReadDepth(config.get<string>('readDepth', 'básico')),
-    maxBytesPerFile: config.get<number>('maxBytesPerFile', 18_000),
     debugTrace: config.get<boolean>('debugTrace', true)
   };
+}
+
+export function getPreSelectionDeployment(settings: ExtensionSettings): string {
+  return settings.preSelectionDeployment?.trim() || DEFAULT_PRE_SELECTION_DEPLOYMENT;
 }
 
 export function getReadDepthTokenBudget(readDepth: ReadDepth): number {

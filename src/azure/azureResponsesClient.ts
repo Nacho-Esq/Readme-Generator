@@ -24,9 +24,9 @@ interface ResponsesApiResponse {
 export class AzureResponsesClient {
   constructor(private readonly settings: ExtensionSettings) {}
 
-  async selectImportantFiles(prompt: string): Promise<FileSelectionResult> {
+  async preSelectImportantFiles(prompt: string, deploymentOverride?: string): Promise<FileSelectionResult> {
     const response = await this.postResponse({
-      model: this.settings.deployment,
+      model: deploymentOverride ?? this.settings.deployment,
       input: [
         {
           role: 'user',

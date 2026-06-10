@@ -1,6 +1,8 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { CandidateFile, SelectedFile, RankedFile } from './types';
+import { CandidateFile, FileOverview, SelectedFile, RankedFile } from './types';
+
+export const PRE_SELECTION_MAX_BYTES_PER_FILE = 200_000;
 
 const IGNORE_DIRECTORIES = new Set([
   'node_modules',
@@ -79,6 +81,31 @@ export async function scanRepository(workspaceFolder: vscode.WorkspaceFolder): P
   return candidates;
 }
 
+export async function readAllCandidateFiles(
+  files: FileOverview[],
+  maxBytesPerFile: number
+): Promise<SelectedFile[]> {
+  const result: SelectedFile[] = [];
+  for (const file of files) {
+    try {
+      const bytes = await vscode.workspace.fs.readFile(file.uri);
+      const slice = bytes.slice(0, maxBytesPerFile);
+      const content = new TextDecoder('utf-8', { fatal: false }).decode(slice);
+      if (content.length === 0) {
+        continue;
+      }
+      result.push({
+        ...file,
+        content,
+        truncated: bytes.byteLength > slice.byteLength
+      });
+    } catch {
+      // Keep generation moving if one file cannot be read.
+    }
+  }
+  return result;
+}
+
 export async function readSelectedFilesByTokenBudget(
   rankedFiles: RankedFile[],
   maxBytesPerFile: number,
@@ -92,25 +119,22 @@ export async function readSelectedFilesByTokenBudget(
       break;
     }
 
-    const remainingTokens = maxTotalTokens - totalTokens;
-    const byteLimit = Math.min(maxBytesPerFile, Math.max(1, remainingTokens * 4));
     try {
       const bytes = await vscode.workspace.fs.readFile(file.uri);
-      let slice = bytes.slice(0, byteLimit);
-      let content = new TextDecoder('utf-8', { fatal: false }).decode(slice);
+      const slice = bytes.slice(0, maxBytesPerFile);
+      const content = new TextDecoder('utf-8', { fatal: false }).decode(slice);
       const tokenEstimate = estimateTokens(content);
 
-      if (tokenEstimate > remainingTokens) {
-        content = content.slice(0, remainingTokens * 4);
-        slice = new TextEncoder().encode(content);
-      }
-
-      const usedTokens = estimateTokens(content);
-      if (usedTokens <= 0) {
+      if (tokenEstimate <= 0) {
         continue;
       }
 
-      totalTokens += usedTokens;
+      // Si el fichero completo no cabe en el presupuesto restante, saltarlo — no truncar.
+      if (totalTokens + tokenEstimate > maxTotalTokens) {
+        continue;
+      }
+
+      totalTokens += tokenEstimate;
       selected.push({
         ...file,
         content,

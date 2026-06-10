@@ -6,7 +6,7 @@ import type {
   RepositoryMap,
   SelectedFile
 } from '../scanner/types';
-import { estimateTokens } from '../scanner/fileScanner';
+import { estimateTokens, PRE_SELECTION_MAX_BYTES_PER_FILE } from '../scanner/fileScanner';
 
 export interface FinalReadFileTrace {
   path: string;
@@ -22,10 +22,11 @@ export interface GenerationTrace {
   generatedAt: string;
   readDepth: ReadDepth;
   tokenBudget: number;
-  maxBytesPerFile: number;
   localDiscardedSummary: DiscardedFileSummary[];
   repositoryMap?: RepositoryMap;
   selectorInventory: object[];
+  preSelectionDeployment: string;
+  preSelectionFilesSentCount: number;
   selectionPrompt: string;
   llmSelection: FileSelectionItem[];
   llmDiscardedSummary: DiscardedFileSummary[];
@@ -42,17 +43,17 @@ export interface SavedTracePaths {
 export function createGenerationTrace(
   workspaceName: string,
   readDepth: ReadDepth,
-  tokenBudget: number,
-  maxBytesPerFile: number
+  tokenBudget: number
 ): GenerationTrace {
   return {
     workspaceName,
     generatedAt: new Date().toISOString(),
     readDepth,
     tokenBudget,
-    maxBytesPerFile,
     localDiscardedSummary: [],
     selectorInventory: [],
+    preSelectionDeployment: '',
+    preSelectionFilesSentCount: 0,
     selectionPrompt: '',
     llmSelection: [],
     llmDiscardedSummary: [],
@@ -113,8 +114,8 @@ function formatTraceMarkdown(trace: GenerationTrace): string {
     `- Workspace: ${trace.workspaceName}`,
     `- Generated at: ${trace.generatedAt}`,
     `- Read depth: ${trace.readDepth}`,
-    `- Token budget: ${trace.tokenBudget}`,
-    `- Max bytes per file: ${trace.maxBytesPerFile}`,
+    `- Token budget (main model): ${trace.tokenBudget}`,
+    `- Per-file read limit (both phases): ${PRE_SELECTION_MAX_BYTES_PER_FILE / 1000} KB`,
     `- Used fallback: ${trace.usedFallback ? 'yes' : 'no'}`,
     '',
     '## Token And Character Usage',
@@ -132,7 +133,11 @@ function formatTraceMarkdown(trace: GenerationTrace): string {
     JSON.stringify(trace.selectorInventory, null, 2),
     '```',
     '',
-    '## LLM Ranking',
+    '## Pre-Selection (Modelo Ligero)',
+    `- Deployment: ${trace.preSelectionDeployment}`,
+    `- Archivos enviados al modelo ligero: ${trace.preSelectionFilesSentCount}`,
+    '',
+    '## LLM Ranking (Pre-Selection)',
     formatSelection(trace.llmSelection),
     '',
     '## LLM Discarded Files',

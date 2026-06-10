@@ -68,6 +68,12 @@
           "markdownDescription": "Azure OpenAI deployment/model name used by the Responses API.",
           "scope": "machine"
         },
+        "readmeGeneratorAi.preSelectionDeployment": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Deployment del modelo ligero usado para leer y ordenar todos los archivos del repositorio. Si se deja vacio, se usa `test-plantillas-gpt-5.4-nano` por defecto.",
+          "scope": "machine"
+        },
         "readmeGeneratorAi.templatePath": {
           "type": "string",
           "default": "",
@@ -87,15 +93,7 @@
             "Consumo medio: aprox. 90k tokens de lectura detallada.",
             "Consumo elevado: aprox. 180k tokens de lectura detallada."
           ],
-          "markdownDescription": "Controla cuanto contenido detallado se envia despues de que el LLM seleccione los archivos importantes.",
-          "scope": "resource"
-        },
-        "readmeGeneratorAi.maxBytesPerFile": {
-          "type": "number",
-          "default": 18000,
-          "minimum": 2000,
-          "maximum": 60000,
-          "markdownDescription": "Maximo de bytes leidos de cada archivo seleccionado antes de aplicar el presupuesto total de tokens.",
+          "markdownDescription": "Controla el presupuesto de tokens del modelo principal al leer los archivos seleccionados. Los tokens consumidos por el modelo ligero de pre-seleccion son independientes y no se cuentan aqui.",
           "scope": "resource"
         },
         "readmeGeneratorAi.debugTrace": {

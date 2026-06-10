@@ -21,7 +21,8 @@ export function buildContentSelectionPrompt(
     '- Ordena selectedFiles de mas a menos importante.',
     '- Descarta los archivos que no aporten informacion util para el README: tests, fixtures, assets, configuracion menor, archivos generados.',
     '- Solo incluye en selectedFiles rutas que aparezcan exactamente en el contenido proporcionado.',
-    '- La razon debe ser muy breve (una frase) explicando por que ese archivo es relevante.',
+    '- La razon de selectedFiles debe ser muy breve (una frase) explicando por que ese archivo es relevante.',
+    '- Para cada archivo descartado, incluyelo en discardedFiles con una razon breve explicando por que no aporta informacion util.',
     '- NO extraigas informacion del proyecto. Solo identifica y ordena archivos por relevancia.',
     '',
     'Mapa estructural del repositorio:',
@@ -31,7 +32,7 @@ export function buildContentSelectionPrompt(
     fileContents,
     '',
     'Formato esperado:',
-    JSON.stringify({ selectedFiles: [{ path: 'src/example.ts', reason: 'razon breve' }], warnings: [] }, null, 2)
+    JSON.stringify({ selectedFiles: [{ path: 'src/example.ts', reason: 'razon breve' }], discardedFiles: [{ path: 'test/example.spec.ts', reason: 'archivo de test' }], warnings: [] }, null, 2)
   ].join('\n');
 }
 
@@ -41,22 +42,27 @@ export function buildFileSelectionMetadata(inventory: FileOverview[]): object[] 
 }
 
 export function getFileSelectionJsonSchema(): object {
+  const fileItemSchema = {
+    type: 'object',
+    additionalProperties: false,
+    required: ['path', 'reason'],
+    properties: {
+      path: { type: 'string' },
+      reason: { type: 'string' }
+    }
+  };
   return {
     type: 'object',
     additionalProperties: false,
-    required: ['selectedFiles', 'warnings'],
+    required: ['selectedFiles', 'discardedFiles', 'warnings'],
     properties: {
       selectedFiles: {
         type: 'array',
-        items: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['path', 'reason'],
-          properties: {
-            path: { type: 'string' },
-            reason: { type: 'string' }
-          }
-        }
+        items: fileItemSchema
+      },
+      discardedFiles: {
+        type: 'array',
+        items: fileItemSchema
       },
       warnings: {
         type: 'array',

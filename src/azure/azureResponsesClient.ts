@@ -1,4 +1,4 @@
-import { ExtensionSettings, ExtractionResult } from '../types';
+import { ExtensionSettings, ExtractionResult, TokenUsage } from '../types';
 import { getExtractionJsonSchema } from '../prompt/promptBuilder';
 import { getFileSelectionJsonSchema } from '../prompt/fileSelectionPrompt';
 import { FileSelectionResult } from '../scanner/types';
@@ -19,12 +19,21 @@ interface ResponsesApiResponse {
   error?: {
     message?: string;
   };
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+  };
+}
+
+export interface ApiCallResult<T> {
+  data: T;
+  tokenUsage: TokenUsage;
 }
 
 export class AzureResponsesClient {
   constructor(private readonly settings: ExtensionSettings) {}
 
-  async preSelectImportantFiles(prompt: string, deploymentOverride?: string): Promise<FileSelectionResult> {
+  async preSelectImportantFiles(prompt: string, deploymentOverride?: string): Promise<ApiCallResult<FileSelectionResult>> {
     const response = await this.postResponse({
       model: deploymentOverride ?? this.settings.deployment,
       input: [
@@ -48,10 +57,13 @@ export class AzureResponsesClient {
       }
     });
 
-    return parseFileSelectionResult(extractResponseText(response));
+    return {
+      data: parseFileSelectionResult(extractResponseText(response)),
+      tokenUsage: extractTokenUsage(response)
+    };
   }
 
-  async extractReadmeData(prompt: string): Promise<ExtractionResult> {
+  async extractReadmeData(prompt: string): Promise<ApiCallResult<ExtractionResult>> {
     const response = await this.postResponse({
       model: this.settings.deployment,
       input: [
@@ -75,7 +87,10 @@ export class AzureResponsesClient {
       }
     });
 
-    return parseExtractionResult(extractResponseText(response));
+    return {
+      data: parseExtractionResult(extractResponseText(response)),
+      tokenUsage: extractTokenUsage(response)
+    };
   }
 
   private async postResponse(body: object): Promise<ResponsesApiResponse> {
@@ -111,18 +126,27 @@ export class AzureResponsesClient {
   }
 }
 
+function extractTokenUsage(response: ResponsesApiResponse): TokenUsage {
+  return {
+    inputTokens: response.usage?.input_tokens ?? 0,
+    outputTokens: response.usage?.output_tokens ?? 0
+  };
+}
+
 function parseFileSelectionResult(text: string): FileSelectionResult {
   const parsed = safeJsonParse<FileSelectionResult>(text) || safeJsonParse<FileSelectionResult>(extractJsonObject(text));
   if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.selectedFiles)) {
     throw new Error('Azure OpenAI response was not valid file selection JSON.');
   }
+  const parseItems = (arr: unknown): FileSelectionResult['selectedFiles'] =>
+    Array.isArray(arr)
+      ? arr
+          .filter((item): item is { path: string; reason?: string } => item && typeof item.path === 'string')
+          .map((item) => ({ path: item.path, reason: typeof item.reason === 'string' ? item.reason : '' }))
+      : [];
   return {
-    selectedFiles: parsed.selectedFiles
-      .filter((item) => item && typeof item.path === 'string')
-      .map((item) => ({
-        path: item.path,
-        reason: typeof item.reason === 'string' ? item.reason : ''
-      })),
+    selectedFiles: parseItems(parsed.selectedFiles),
+    discardedFiles: parseItems(parsed.discardedFiles),
     warnings: Array.isArray(parsed.warnings) ? parsed.warnings : []
   };
 }

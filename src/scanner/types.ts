@@ -45,6 +45,7 @@ export interface FileSelectionItem {
 
 export interface FileSelectionResult {
   selectedFiles: FileSelectionItem[];
+  discardedFiles: FileSelectionItem[];
   warnings: string[];
 }
 

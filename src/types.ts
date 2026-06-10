@@ -126,3 +126,8 @@ export interface ExtensionSettings {
   readDepth: ReadDepth;
   debugTrace: boolean;
 }
+
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+}

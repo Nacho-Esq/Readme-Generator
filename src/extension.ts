@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { AzureResponsesClient } from './azure/azureResponsesClient';
 import { ensureConfigured, getPreSelectionDeployment, getReadDepthTokenBudget, getSettings } from './config';
-import { buildContentSelectionPrompt, buildFileSelectionMetadata } from './prompt/fileSelectionPrompt';
+import { buildContentSelectionPrompt } from './prompt/fileSelectionPrompt';
 import { buildExtractionPrompt } from './prompt/promptBuilder';
 import {
   analyzeReadmeData,
@@ -14,6 +14,7 @@ import { buildFileInventory } from './scanner/fileRanker';
 import { PRE_SELECTION_MAX_BYTES_PER_FILE, readAllCandidateFiles, readSelectedFilesByTokenBudget, scanRepository } from './scanner/fileScanner';
 import { analyzeRepository } from './scanner/repositoryAnalyzer';
 import { DiscardedFileSummary, FileOverview, FileSelectionItem, FileSelectionResult } from './scanner/types';
+import { TokenUsage } from './types';
 import { TemplateRenderer } from './template/templateRenderer';
 import {
   buildFinalReadFileTrace,
@@ -81,7 +82,6 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
     let repositoryMap = await analyzeRepository(candidates, workspaceFolder, inventory.discardedSummary);
     trace.localDiscardedSummary = inventory.discardedSummary;
     trace.repositoryMap = repositoryMap;
-    trace.selectorInventory = buildFileSelectionMetadata(inventory.selectorInventory);
 
     vscode.window.setStatusBarMessage(
       `README Generator AI: leyendo repositorio completo (${inventory.selectorInventory.length} archivos)...`,
@@ -91,6 +91,7 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
     const allCandidateFiles = await readAllCandidateFiles(inventory.selectorInventory, PRE_SELECTION_MAX_BYTES_PER_FILE);
     const contentPrompt = buildContentSelectionPrompt(repositoryMap, allCandidateFiles);
     trace.preSelectionDeployment = preSelectionDeployment;
+    trace.mainModelDeployment = settings.deployment;
     trace.preSelectionFilesSentCount = allCandidateFiles.length;
     trace.selectionPrompt = contentPrompt;
     vscode.window.setStatusBarMessage(
@@ -105,8 +106,10 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
       inventory.fallbackRanking
     );
     trace.llmSelection = selection.llmSelection;
+    trace.llmDiscardedFiles = selection.nanoDiscardedFiles;
     trace.llmDiscardedSummary = selection.discardedSummary;
     trace.usedFallback = selection.usedFallback;
+    trace.nanoTokenUsage = selection.nanoTokenUsage;
     repositoryMap = await analyzeRepository(
       candidates,
       workspaceFolder,
@@ -129,7 +132,9 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
 
     vscode.window.setStatusBarMessage(`README Generator AI: analizando ${selectedFiles.length} archivos...`, 4_000);
     const prompt = buildExtractionPrompt(selectedFiles, workspaceFolder.name, repositoryMap);
-    const extraction = await client.extractReadmeData(prompt);
+    const extractionResult = await client.extractReadmeData(prompt);
+    trace.mainModelTokenUsage = extractionResult.tokenUsage;
+    const extraction = extractionResult.data;
     const warnings = selection.warnings.concat(extraction.warnings);
     trace.warnings = warnings;
     await saveTraceIfEnabled(workspaceFolder, settings.debugTrace, trace);
@@ -173,9 +178,11 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
 interface DetailedReadSelection {
   ranking: FileOverview[];
   llmSelection: FileSelectionItem[];
+  nanoDiscardedFiles: FileSelectionItem[];
   discardedSummary: DiscardedFileSummary[];
   warnings: string[];
   usedFallback: boolean;
+  nanoTokenUsage: TokenUsage | null;
 }
 
 async function selectFilesForDetailedRead(
@@ -186,23 +193,26 @@ async function selectFilesForDetailedRead(
   fallbackRanking: FileOverview[]
 ): Promise<DetailedReadSelection> {
   try {
-    const result = await client.preSelectImportantFiles(prompt, deploymentOverride);
-    const validated = validateFileSelection(result, inventory);
+    const apiResult = await client.preSelectImportantFiles(prompt, deploymentOverride);
+    const validated = validateFileSelection(apiResult.data, inventory);
     if (validated.ranking.length === 0) {
       throw new Error('El selector LLM no devolvio rutas validas.');
     }
 
     return {
       ranking: validated.ranking,
-      llmSelection: result.selectedFiles,
+      llmSelection: apiResult.data.selectedFiles,
+      nanoDiscardedFiles: apiResult.data.discardedFiles,
       discardedSummary: [summarizeLlmDiscarded(inventory, validated.ranking)],
-      warnings: result.warnings.concat(validated.warnings),
-      usedFallback: false
+      warnings: apiResult.data.warnings.concat(validated.warnings),
+      usedFallback: false,
+      nanoTokenUsage: apiResult.tokenUsage
     };
   } catch (error) {
     return {
       ranking: fallbackRanking,
       llmSelection: [],
+      nanoDiscardedFiles: [],
       discardedSummary: [
         {
           reason: 'fallback to local heuristic ranking',
@@ -212,7 +222,8 @@ async function selectFilesForDetailedRead(
         }
       ],
       warnings: [`No se pudo usar el selector LLM de archivos; se uso el ranking local: ${asErrorMessage(error)}`],
-      usedFallback: true
+      usedFallback: true,
+      nanoTokenUsage: null
     };
   }
 }

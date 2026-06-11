@@ -74,7 +74,7 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
     }
 
     const client = new AzureResponsesClient(settings);
-    const tokenBudget = getReadDepthTokenBudget(settings.readDepth);
+    const tokenBudget = getReadDepthTokenBudget(settings.readDepth, settings.customTokenBudget);
     const trace = createGenerationTrace(
       workspaceFolder.name,
       settings.readDepth,

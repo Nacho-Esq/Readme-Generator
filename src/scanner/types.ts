@@ -16,7 +16,7 @@ export interface SelectedFile extends RankedFile {
   truncated: boolean;
 }
 
-export type ReadDepth = 'básico' | 'detallado' | 'profundo';
+export type ReadDepth = 'básico' | 'detallado' | 'profundo' | 'personalizado';
 
 export type FileKind = 'source' | 'docs' | 'config' | 'infra' | 'template' | 'test' | 'generated' | 'other';
 

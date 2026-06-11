@@ -130,6 +130,7 @@ export interface ExtensionSettings {
   preSelectionDeployment?: string;
   templatePath: string;
   readDepth: ReadDepth;
+  customTokenBudget?: number;
   debugTrace: boolean;
 }
 

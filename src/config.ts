@@ -13,6 +13,7 @@ export function getSettings(): ExtensionSettings {
     preSelectionDeployment: config.get<string>('preSelectionDeployment', '').trim(),
     templatePath: config.get<string>('templatePath', '').trim(),
     readDepth: normalizeReadDepth(config.get<string>('readDepth', 'básico')),
+    customTokenBudget: config.get<number>('customTokenBudget'),
     debugTrace: config.get<boolean>('debugTrace', true)
   };
 }
@@ -21,12 +22,14 @@ export function getPreSelectionDeployment(settings: ExtensionSettings): string {
   return settings.preSelectionDeployment?.trim() || DEFAULT_PRE_SELECTION_DEPLOYMENT;
 }
 
-export function getReadDepthTokenBudget(readDepth: ReadDepth): number {
+export function getReadDepthTokenBudget(readDepth: ReadDepth, customTokenBudget?: number): number {
   switch (readDepth) {
     case 'profundo':
       return 180_000;
     case 'detallado':
       return 90_000;
+    case 'personalizado':
+      return Math.max(1_000, customTokenBudget ?? 30_000);
     case 'básico':
     default:
       return 30_000;
@@ -40,6 +43,9 @@ function normalizeReadDepth(value: string | undefined): ReadDepth {
   }
   if (normalized === 'detailed' || normalized === 'detallado') {
     return 'detallado';
+  }
+  if (normalized === 'personalizado' || normalized === 'custom') {
+    return 'personalizado';
   }
   return 'básico';
 }

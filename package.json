@@ -86,14 +86,23 @@
           "enum": [
             "básico",
             "detallado",
-            "profundo"
+            "profundo",
+            "personalizado"
           ],
           "enumDescriptions": [
             "Consumo bajo: aprox. 30k tokens de lectura detallada.",
             "Consumo medio: aprox. 90k tokens de lectura detallada.",
-            "Consumo elevado: aprox. 180k tokens de lectura detallada."
+            "Consumo elevado: aprox. 180k tokens de lectura detallada.",
+            "Presupuesto definido manualmente en el ajuste customTokenBudget."
           ],
           "markdownDescription": "Controla el presupuesto de tokens del modelo principal al leer los archivos seleccionados. Los tokens consumidos por el modelo ligero de pre-seleccion son independientes y no se cuentan aqui.",
+          "scope": "resource"
+        },
+        "readmeGeneratorAi.customTokenBudget": {
+          "type": "number",
+          "default": 30000,
+          "minimum": 1000,
+          "markdownDescription": "Presupuesto personalizado de tokens para el modelo principal. Solo se aplica cuando `readmeGeneratorAi.readDepth` está configurado como `personalizado`.",
           "scope": "resource"
         },
         "readmeGeneratorAi.debugTrace": {

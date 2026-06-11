@@ -1,4 +1,4 @@
-import { ExtensionSettings, ExtractionResult, TokenUsage } from '../types';
+import { ExtensionSettings, ExtractionResult, RelevantUnreadFile, TokenUsage } from '../types';
 import { getExtractionJsonSchema } from '../prompt/promptBuilder';
 import { getFileSelectionJsonSchema } from '../prompt/fileSelectionPrompt';
 import { FileSelectionResult } from '../scanner/types';
@@ -177,9 +177,23 @@ function parseExtractionResult(text: string): ExtractionResult {
   if (!parsed || typeof parsed !== 'object' || !parsed.data) {
     throw new Error('Azure OpenAI response was not valid extraction JSON.');
   }
+  const relevantUnreadFiles: RelevantUnreadFile[] = Array.isArray(parsed.relevantUnreadFiles)
+    ? parsed.relevantUnreadFiles
+        .filter((item): item is RelevantUnreadFile =>
+          item !== null &&
+          typeof item === 'object' &&
+          typeof item.path === 'string' &&
+          Array.isArray(item.missingTopics)
+        )
+        .map((item) => ({
+          path: item.path,
+          missingTopics: item.missingTopics.filter((t: unknown): t is string => typeof t === 'string')
+        }))
+    : [];
   return {
     data: parsed.data,
-    warnings: Array.isArray(parsed.warnings) ? parsed.warnings : []
+    warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
+    relevantUnreadFiles
   };
 }
 

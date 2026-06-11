@@ -1,4 +1,4 @@
-import { FileOverview, RepositoryMap, SelectedFile } from '../scanner/types';
+import { RepositoryMap, SelectedFile } from '../scanner/types';
 
 export function buildContentSelectionPrompt(
   repositoryMap: RepositoryMap,
@@ -13,16 +13,33 @@ export function buildContentSelectionPrompt(
 
   return [
     'Eres un analizador de repositorios de software.',
-    'Tu tarea es ordenar los archivos del repositorio por importancia para generar un README tecnico.',
-    'Debes identificar donde esta la logica central del proyecto.',
+    'Tu tarea es ordenar los archivos del repositorio por importancia para que otro modelo pueda generar un README tecnico completo del proyecto.',
+    '',
+    'CONTEXTO CRITICO — por que el orden importa:',
+    'El modelo que generara el README leera los archivos en el orden que tu indiques, de mas a menos importante.',
+    'Tiene un presupuesto limitado de tokens y puede quedarse sin presupuesto antes de llegar al final de la lista.',
+    'Si un archivo importante queda en una posicion baja, puede que nunca sea leido y su informacion se pierda.',
+    'Pon primero lo que mas necesita el README.',
+    '',
+    'Un README tecnico cubre tipicamente:',
+    '- Proposito del proyecto y a quien va dirigido',
+    '- Arquitectura y componentes principales',
+    '- Stack tecnologico y dependencias clave',
+    '- Variables de entorno y configuracion necesaria',
+    '- Instrucciones de instalacion y arranque',
+    '- Uso, canales o interfaces del sistema',
+    '- Despliegue y entornos',
+    '- Integraciones con sistemas externos',
     '',
     'Reglas:',
     '- Devuelve solo JSON valido con el schema solicitado.',
-    '- Ordena selectedFiles de mas a menos importante.',
-    '- Descarta los archivos que no aporten informacion util para el README: tests, fixtures, assets, configuracion menor, archivos generados.',
+    '- Ordena selectedFiles de mas a menos importante segun lo que mas aporte al README.',
+    '- Son especialmente valiosos: entrypoints, ficheros de configuracion, definiciones de tipos e interfaces, variables de entorno, scripts de arranque y despliegue, ficheros que describan la arquitectura.',
+    '- Descarta en discardedFiles solo los archivos que con certeza no aporten nada al README: tests unitarios, fixtures, assets binarios, lockfiles, archivos generados automaticamente. Ante la duda, incluye el archivo en selectedFiles aunque sea con prioridad baja.',
     '- Solo incluye en selectedFiles rutas que aparezcan exactamente en el contenido proporcionado.',
-    '- La razon de selectedFiles debe ser muy breve (una frase) explicando por que ese archivo es relevante.',
-    '- Para cada archivo descartado, incluyelo en discardedFiles con una razon breve explicando por que no aporta informacion util.',
+    '- La razon de selectedFiles debe ser muy breve (una frase) explicando por que ese archivo es relevante para el README.',
+    '- Para cada archivo descartado, incluyelo en discardedFiles con una razon breve (una frase).',
+    '- Usa warnings para reportar situaciones anomalas: rutas ambiguas, estructura de proyecto muy atipica, o archivos que no puedas clasificar con confianza.',
     '- NO extraigas informacion del proyecto. Solo identifica y ordena archivos por relevancia.',
     '',
     'Mapa estructural del repositorio:',
@@ -32,14 +49,10 @@ export function buildContentSelectionPrompt(
     fileContents,
     '',
     'Formato esperado:',
-    JSON.stringify({ selectedFiles: [{ path: 'src/example.ts', reason: 'razon breve' }], discardedFiles: [{ path: 'test/example.spec.ts', reason: 'archivo de test' }], warnings: [] }, null, 2)
+    JSON.stringify({ selectedFiles: [{ path: 'src/example.ts', reason: 'razon breve' }], discardedFiles: [{ path: 'test/example.spec.ts', reason: 'razon breve' }], warnings: ["No se encontro fichero de configuracion de entorno (.env.example o similar)"] }, null, 2)
   ].join('\n');
 }
 
-
-export function buildFileSelectionMetadata(inventory: FileOverview[]): object[] {
-  return inventory.map(toPromptOverview);
-}
 
 export function getFileSelectionJsonSchema(): object {
   const fileItemSchema = {
@@ -69,23 +82,6 @@ export function getFileSelectionJsonSchema(): object {
         items: { type: 'string' }
       }
     }
-  };
-}
-
-function toPromptOverview(file: FileOverview): object {
-  return {
-    path: file.relativePath,
-    size: file.size,
-    extension: file.extension,
-    modulePath: file.modulePath,
-    kind: file.kind,
-    isEntrypoint: file.isEntrypoint,
-    initialScore: file.score,
-    reasons: file.reasons,
-    isTooLarge: file.isTooLarge,
-    importsExports: file.importsExports,
-    exportedFunctions: file.exportedFunctions,
-    packageScripts: file.packageScripts
   };
 }
 

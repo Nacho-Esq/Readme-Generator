@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import { AzureResponsesClient } from './azure/azureResponsesClient';
 import { ensureConfigured, getPreSelectionDeployment, getReadDepthTokenBudget, getSettings } from './config';
 import { buildContentSelectionPrompt } from './prompt/fileSelectionPrompt';
-import { buildExtractionPrompt } from './prompt/promptBuilder';
+import { buildExtractionPrompt, buildSupplementalExtractionPrompt } from './prompt/promptBuilder';
 import {
   analyzeReadmeData,
   completeRenderOptions,
@@ -14,15 +14,17 @@ import { buildFileInventory } from './scanner/fileRanker';
 import { PRE_SELECTION_MAX_BYTES_PER_FILE, readAllCandidateFiles, readSelectedFilesByTokenBudget, scanRepository } from './scanner/fileScanner';
 import { analyzeRepository } from './scanner/repositoryAnalyzer';
 import { DiscardedFileSummary, FileOverview, FileSelectionItem, FileSelectionResult } from './scanner/types';
-import { TokenUsage } from './types';
+import { ReadmeData, TokenUsage } from './types';
 import { TemplateRenderer } from './template/templateRenderer';
 import {
   buildFinalReadFileTrace,
   createGenerationTrace,
   GenerationTrace,
+  getInputCostPerToken,
   openLastGenerationTrace,
   saveGenerationTrace
 } from './trace/generationTrace';
+import { BudgetWarningPanel } from './ui/budgetWarningPanel';
 import { EditFormPanel } from './ui/editFormPanel';
 import { asErrorMessage } from './utils/errors';
 
@@ -130,26 +132,81 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
     trace.warnings = selection.warnings;
     await saveTraceIfEnabled(workspaceFolder, settings.debugTrace, trace);
 
+    const readPaths = new Set(selectedFiles.map((f) => f.relativePath));
+    const nanoReasonsByPath = new Map(selection.llmSelection.map((item) => [item.path, item.reason]));
+    const unreadFiles = selection.ranking
+      .filter((f) => !readPaths.has(f.relativePath))
+      .map((f) => ({
+        path: f.relativePath,
+        nanoReason: nanoReasonsByPath.get(f.relativePath) ?? '',
+        estimatedTokens: Math.ceil(f.size / 4)
+      }));
+
     vscode.window.setStatusBarMessage(`README Generator AI: analizando ${selectedFiles.length} archivos...`, 4_000);
-    const prompt = buildExtractionPrompt(selectedFiles, workspaceFolder.name, repositoryMap);
+    const prompt = buildExtractionPrompt(selectedFiles, workspaceFolder.name, repositoryMap, {
+      nanoReasonsByPath,
+      unreadFiles
+    });
     const extractionResult = await client.extractReadmeData(prompt);
     trace.mainModelTokenUsage = extractionResult.tokenUsage;
     const extraction = extractionResult.data;
-    const warnings = selection.warnings.concat(extraction.warnings);
-    trace.warnings = warnings;
+    let finalReadmeData = extraction.data;
+    let finalWarnings = selection.warnings.concat(extraction.warnings);
+
+    const unreadPathSet = new Set(unreadFiles.map((f) => f.path));
+    const relevantUnreadFiles = extraction.relevantUnreadFiles
+      .filter((item) => unreadPathSet.has(item.path));
+
+    if (unreadFiles.length > 0) {
+      const inputCostPerToken = getInputCostPerToken(settings.deployment);
+      const budgetResult = await BudgetWarningPanel.show(
+        unreadFiles,
+        relevantUnreadFiles,
+        inputCostPerToken,
+        context.extensionUri
+      );
+
+      if (budgetResult.action === 'expand' && budgetResult.selectedPaths.length > 0) {
+        const rankingByPath = new Map(selection.ranking.map((f) => [f.relativePath, f]));
+        const filesToRead = budgetResult.selectedPaths
+          .map((p) => rankingByPath.get(p))
+          .filter((f): f is FileOverview => f !== undefined);
+
+        if (filesToRead.length > 0) {
+          vscode.window.setStatusBarMessage(
+            `README Generator AI: leyendo ${filesToRead.length} archivos adicionales...`,
+            4_000
+          );
+          const additionalFiles = await readAllCandidateFiles(filesToRead, PRE_SELECTION_MAX_BYTES_PER_FILE);
+          const supplementalPrompt = buildSupplementalExtractionPrompt(
+            finalReadmeData,
+            additionalFiles,
+            workspaceFolder.name,
+            repositoryMap,
+            { nanoReasonsByPath, unreadFiles: [] }
+          );
+          const supplementalResult = await client.extractReadmeData(supplementalPrompt);
+          trace.mainModelTokenUsage = supplementalResult.tokenUsage;
+          finalReadmeData = mergeReadmeData(finalReadmeData, supplementalResult.data.data);
+          finalWarnings = finalWarnings.concat(supplementalResult.data.warnings);
+        }
+      }
+    }
+
+    trace.warnings = finalWarnings;
     await saveTraceIfEnabled(workspaceFolder, settings.debugTrace, trace);
 
     const renderer = new TemplateRenderer(context.extensionUri);
     const templatePath = await renderer.resolveTemplatePath(settings.templatePath);
-    const review = analyzeReadmeData(extraction.data);
-    const initialRenderOptions = completeRenderOptions(extraction.data, createDefaultRenderOptions());
-    const initialReviewData = prepareDataForReview(extraction.data, initialRenderOptions);
+    const review = analyzeReadmeData(finalReadmeData);
+    const initialRenderOptions = completeRenderOptions(finalReadmeData, createDefaultRenderOptions());
+    const initialReviewData = prepareDataForReview(finalReadmeData, initialRenderOptions);
     const initialMarkdown = await renderer.render(templatePath, initialReviewData, initialRenderOptions);
 
     const editResult = await EditFormPanel.show(
       initialReviewData,
       initialMarkdown,
-      warnings,
+      finalWarnings,
       context.extensionUri,
       review,
       initialRenderOptions,
@@ -284,6 +341,31 @@ async function openLastTrace(): Promise<void> {
     return;
   }
   await openLastGenerationTrace(workspaceFolder);
+}
+
+function mergeReadmeData(original: ReadmeData, supplement: ReadmeData): ReadmeData {
+  return deepMerge(original, supplement) as ReadmeData;
+}
+
+function deepMerge(original: unknown, supplement: unknown): unknown {
+  if (typeof supplement === 'string') {
+    return supplement !== '' ? supplement : original;
+  }
+  if (Array.isArray(supplement)) {
+    return supplement.length > 0 ? supplement : original;
+  }
+  if (
+    supplement !== null && typeof supplement === 'object' &&
+    original !== null && typeof original === 'object' &&
+    !Array.isArray(original)
+  ) {
+    const result: Record<string, unknown> = { ...(original as Record<string, unknown>) };
+    for (const [key, value] of Object.entries(supplement as Record<string, unknown>)) {
+      result[key] = deepMerge((original as Record<string, unknown>)[key], value);
+    }
+    return result;
+  }
+  return supplement ?? original;
 }
 
 async function saveTraceIfEnabled(

@@ -112,9 +112,15 @@ export interface ReadmeData {
   related_projects: string[];
 }
 
+export interface RelevantUnreadFile {
+  path: string;
+  missingTopics: string[];
+}
+
 export interface ExtractionResult {
   data: ReadmeData;
   warnings: string[];
+  relevantUnreadFiles: RelevantUnreadFile[];
 }
 
 export interface ExtensionSettings {

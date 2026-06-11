@@ -126,6 +126,11 @@ const MODEL_PRICING: Array<{ pattern: string; pricing: ModelPricing }> = [
   { pattern: 'gpt-5.3-codex',      pricing: { inputPerMillion: 1.51,  outputPerMillion: 12.05 } },
 ];
 
+export function getInputCostPerToken(deploymentName: string): number | null {
+  const entry = MODEL_PRICING.find((e) => deploymentName.includes(e.pattern));
+  return entry ? entry.pricing.inputPerMillion / 1_000_000 : null;
+}
+
 function computeCost(deploymentName: string, usage: TokenUsage): string {
   const entry = MODEL_PRICING.find((e) => deploymentName.includes(e.pattern));
   if (!entry) {

@@ -1,13 +1,10 @@
 import * as vscode from 'vscode';
-import { RelevantUnreadFile } from '../types';
 import { UnreadFileInfo } from '../prompt/promptBuilder';
 
 interface PanelFileData {
   path: string;
   nanoReason: string;
   estimatedTokens: number;
-  missingTopics: string[];
-  recommended: boolean;
 }
 
 export interface BudgetWarningResult {
@@ -17,33 +14,22 @@ export interface BudgetWarningResult {
 
 export class BudgetWarningPanel {
   static async show(
-    unreadFiles: UnreadFileInfo[],
-    relevantUnreadFiles: RelevantUnreadFile[],
+    overflowFiles: UnreadFileInfo[],
     inputCostPerToken: number | null,
     extensionUri: vscode.Uri
   ): Promise<BudgetWarningResult> {
     const panel = vscode.window.createWebviewPanel(
       'readmeGeneratorBudgetWarning',
-      'README Generator AI — Archivos no leídos',
+      'README Generator AI — Archivos fuera del presupuesto',
       vscode.ViewColumn.One,
       { enableScripts: true, retainContextWhenHidden: false }
     );
 
-    const relevantMap = new Map(relevantUnreadFiles.map((f) => [f.path, f.missingTopics]));
-    const panelData: PanelFileData[] = unreadFiles
-      .map((f) => ({
-        path: f.path,
-        nanoReason: f.nanoReason,
-        estimatedTokens: f.estimatedTokens,
-        missingTopics: relevantMap.get(f.path) ?? [],
-        recommended: relevantMap.has(f.path)
-      }))
-      .sort((a, b) => {
-        if (a.recommended !== b.recommended) {
-          return a.recommended ? -1 : 1;
-        }
-        return a.path.localeCompare(b.path);
-      });
+    const panelData: PanelFileData[] = overflowFiles.map((f) => ({
+      path: f.path,
+      nanoReason: f.nanoReason,
+      estimatedTokens: f.estimatedTokens
+    }));
 
     panel.webview.html = buildHtml(panelData, inputCostPerToken);
 
@@ -93,7 +79,7 @@ function buildHtml(files: PanelFileData[], inputCostPerToken: number | null): st
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
-  <title>Archivos no leídos</title>
+  <title>Archivos fuera del presupuesto</title>
   <style>
     body {
       font-family: var(--vscode-font-family);
@@ -134,19 +120,6 @@ function buildHtml(files: PanelFileData[], inputCostPerToken: number | null): st
     .file-path {
       font-family: var(--vscode-editor-font-family, monospace);
       font-size: 0.9em;
-    }
-    .badge-recommended {
-      font-size: 0.72em;
-      padding: 2px 7px;
-      background: var(--vscode-badge-background);
-      color: var(--vscode-badge-foreground);
-      border-radius: 10px;
-      white-space: nowrap;
-    }
-    .file-topics {
-      font-size: 0.85em;
-      color: var(--vscode-foreground);
-      margin-left: 24px;
     }
     .file-nano-reason {
       font-size: 0.8em;
@@ -189,18 +162,18 @@ function buildHtml(files: PanelFileData[], inputCostPerToken: number | null): st
   </style>
 </head>
 <body>
-  <h2>Archivos no leídos por presupuesto de tokens</h2>
+  <h2>Archivos fuera del presupuesto de tokens</h2>
   <p class="description">
-    El modelo principal no pudo leer todos los archivos relevantes por límite de tokens.
-    Los archivos marcados como <strong>recomendado</strong> son los que el modelo considera que podrían completar campos que quedaron vacíos.
-    Selecciona los que deseas incluir en una segunda lectura:
+    El modelo de selección ha identificado más archivos relevantes de los que caben en el presupuesto configurado.
+    Los archivos aparecen ordenados por importancia según el análisis del modelo.
+    Selecciona los que deseas incluir en la lectura:
   </p>
 
   <ul class="file-list" id="fileList"></ul>
   <div class="total-box" id="totalBox">Total seleccionado: 0 tokens</div>
 
   <div class="buttons">
-    <button class="btn-primary" id="btnExpand" disabled>Sí, leer archivos adicionales</button>
+    <button class="btn-primary" id="btnExpand" disabled>Sí, incluir archivos adicionales</button>
     <button class="btn-secondary" id="btnContinue">No, continuar con la selección actual</button>
   </div>
 
@@ -227,7 +200,7 @@ function buildHtml(files: PanelFileData[], inputCostPerToken: number | null): st
       const cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.value = file.path;
-      cb.checked = file.recommended;
+      cb.checked = false;
       cb.id = 'cb-' + file.path;
       cb.addEventListener('change', updateTotal);
 
@@ -237,22 +210,7 @@ function buildHtml(files: PanelFileData[], inputCostPerToken: number | null): st
 
       header.appendChild(cb);
       header.appendChild(pathSpan);
-
-      if (file.recommended) {
-        const badge = document.createElement('span');
-        badge.className = 'badge-recommended';
-        badge.textContent = 'recomendado';
-        header.appendChild(badge);
-      }
-
       li.appendChild(header);
-
-      if (file.missingTopics && file.missingTopics.length > 0) {
-        const topics = document.createElement('div');
-        topics.className = 'file-topics';
-        topics.textContent = 'Información relevante: ' + file.missingTopics.join(', ');
-        li.appendChild(topics);
-      }
 
       if (file.nanoReason) {
         const reason = document.createElement('div');

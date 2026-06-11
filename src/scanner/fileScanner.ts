@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { CandidateFile, FileOverview, SelectedFile, RankedFile } from './types';
+import { CandidateFile, FileOverview, SelectedFile } from './types';
 
 export const PRE_SELECTION_MAX_BYTES_PER_FILE = 200_000;
 
@@ -106,46 +106,25 @@ export async function readAllCandidateFiles(
   return result;
 }
 
-export async function readSelectedFilesByTokenBudget(
-  rankedFiles: RankedFile[],
-  maxBytesPerFile: number,
+export function splitByTokenBudget(
+  rankedFiles: FileOverview[],
   maxTotalTokens: number
-): Promise<SelectedFile[]> {
-  const selected: SelectedFile[] = [];
+): { fitting: FileOverview[]; overflow: FileOverview[] } {
+  const fitting: FileOverview[] = [];
+  const overflow: FileOverview[] = [];
   let totalTokens = 0;
 
   for (const file of rankedFiles) {
-    if (totalTokens >= maxTotalTokens) {
-      break;
-    }
-
-    try {
-      const bytes = await vscode.workspace.fs.readFile(file.uri);
-      const slice = bytes.slice(0, maxBytesPerFile);
-      const content = new TextDecoder('utf-8', { fatal: false }).decode(slice);
-      const tokenEstimate = estimateTokens(content);
-
-      if (tokenEstimate <= 0) {
-        continue;
-      }
-
-      // Si el fichero completo no cabe en el presupuesto restante, saltarlo — no truncar.
-      if (totalTokens + tokenEstimate > maxTotalTokens) {
-        continue;
-      }
-
+    const tokenEstimate = Math.ceil(file.size / 4);
+    if (totalTokens + tokenEstimate <= maxTotalTokens) {
+      fitting.push(file);
       totalTokens += tokenEstimate;
-      selected.push({
-        ...file,
-        content,
-        truncated: bytes.byteLength > slice.byteLength
-      });
-    } catch {
-      // Keep generation moving if one selected file cannot be read.
+    } else {
+      overflow.push(file);
     }
   }
 
-  return selected;
+  return { fitting, overflow };
 }
 
 export function estimateTokens(content: string): number {

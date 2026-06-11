@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import { AzureResponsesClient } from './azure/azureResponsesClient';
 import { ensureConfigured, getPreSelectionDeployment, getReadDepthTokenBudget, getSettings } from './config';
 import { buildContentSelectionPrompt } from './prompt/fileSelectionPrompt';
-import { buildExtractionPrompt, buildSupplementalExtractionPrompt } from './prompt/promptBuilder';
+import { buildExtractionPrompt } from './prompt/promptBuilder';
 import {
   analyzeReadmeData,
   completeRenderOptions,
@@ -11,10 +11,10 @@ import {
   prepareDataForReview
 } from './readme/reviewModel';
 import { buildFileInventory } from './scanner/fileRanker';
-import { PRE_SELECTION_MAX_BYTES_PER_FILE, readAllCandidateFiles, readSelectedFilesByTokenBudget, scanRepository } from './scanner/fileScanner';
+import { PRE_SELECTION_MAX_BYTES_PER_FILE, readAllCandidateFiles, scanRepository, splitByTokenBudget } from './scanner/fileScanner';
 import { analyzeRepository } from './scanner/repositoryAnalyzer';
 import { DiscardedFileSummary, FileOverview, FileSelectionItem, FileSelectionResult } from './scanner/types';
-import { ReadmeData, TokenUsage } from './types';
+import { TokenUsage } from './types';
 import { TemplateRenderer } from './template/templateRenderer';
 import {
   buildFinalReadFileTrace,
@@ -119,11 +119,37 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
     );
     trace.repositoryMap = repositoryMap;
 
-    const selectedFiles = await readSelectedFilesByTokenBudget(
-      selection.ranking,
-      PRE_SELECTION_MAX_BYTES_PER_FILE,
-      tokenBudget
+    const { fitting, overflow } = splitByTokenBudget(selection.ranking, tokenBudget);
+    const nanoReasonsByPath = new Map(selection.llmSelection.map((item) => [item.path, item.reason]));
+
+    let filesToRead: FileOverview[] = [...fitting];
+
+    if (overflow.length > 0) {
+      const inputCostPerToken = getInputCostPerToken(settings.deployment);
+      const overflowInfo = overflow.map((f) => ({
+        path: f.relativePath,
+        nanoReason: nanoReasonsByPath.get(f.relativePath) ?? '',
+        estimatedTokens: Math.ceil(f.size / 4)
+      }));
+      const budgetResult = await BudgetWarningPanel.show(
+        overflowInfo,
+        inputCostPerToken,
+        context.extensionUri
+      );
+      if (budgetResult.action === 'expand' && budgetResult.selectedPaths.length > 0) {
+        const overflowByPath = new Map(overflow.map((f) => [f.relativePath, f]));
+        const extras = budgetResult.selectedPaths
+          .map((p) => overflowByPath.get(p))
+          .filter((f): f is FileOverview => f !== undefined);
+        filesToRead = [...fitting, ...extras];
+      }
+    }
+
+    vscode.window.setStatusBarMessage(
+      `README Generator AI: leyendo ${filesToRead.length} archivos...`,
+      6_000
     );
+    const selectedFiles = await readAllCandidateFiles(filesToRead, PRE_SELECTION_MAX_BYTES_PER_FILE);
     if (selectedFiles.length === 0) {
       vscode.window.showErrorMessage('No se pudieron leer los archivos seleccionados.');
       return;
@@ -133,7 +159,6 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
     await saveTraceIfEnabled(workspaceFolder, settings.debugTrace, trace);
 
     const readPaths = new Set(selectedFiles.map((f) => f.relativePath));
-    const nanoReasonsByPath = new Map(selection.llmSelection.map((item) => [item.path, item.reason]));
     const unreadFiles = selection.ranking
       .filter((f) => !readPaths.has(f.relativePath))
       .map((f) => ({
@@ -152,46 +177,6 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
     const extraction = extractionResult.data;
     let finalReadmeData = extraction.data;
     let finalWarnings = selection.warnings.concat(extraction.warnings);
-
-    const unreadPathSet = new Set(unreadFiles.map((f) => f.path));
-    const relevantUnreadFiles = extraction.relevantUnreadFiles
-      .filter((item) => unreadPathSet.has(item.path));
-
-    if (unreadFiles.length > 0) {
-      const inputCostPerToken = getInputCostPerToken(settings.deployment);
-      const budgetResult = await BudgetWarningPanel.show(
-        unreadFiles,
-        relevantUnreadFiles,
-        inputCostPerToken,
-        context.extensionUri
-      );
-
-      if (budgetResult.action === 'expand' && budgetResult.selectedPaths.length > 0) {
-        const rankingByPath = new Map(selection.ranking.map((f) => [f.relativePath, f]));
-        const filesToRead = budgetResult.selectedPaths
-          .map((p) => rankingByPath.get(p))
-          .filter((f): f is FileOverview => f !== undefined);
-
-        if (filesToRead.length > 0) {
-          vscode.window.setStatusBarMessage(
-            `README Generator AI: leyendo ${filesToRead.length} archivos adicionales...`,
-            4_000
-          );
-          const additionalFiles = await readAllCandidateFiles(filesToRead, PRE_SELECTION_MAX_BYTES_PER_FILE);
-          const supplementalPrompt = buildSupplementalExtractionPrompt(
-            finalReadmeData,
-            additionalFiles,
-            workspaceFolder.name,
-            repositoryMap,
-            { nanoReasonsByPath, unreadFiles: [] }
-          );
-          const supplementalResult = await client.extractReadmeData(supplementalPrompt);
-          trace.mainModelTokenUsage = supplementalResult.tokenUsage;
-          finalReadmeData = mergeReadmeData(finalReadmeData, supplementalResult.data.data);
-          finalWarnings = finalWarnings.concat(supplementalResult.data.warnings);
-        }
-      }
-    }
 
     trace.warnings = finalWarnings;
     await saveTraceIfEnabled(workspaceFolder, settings.debugTrace, trace);
@@ -343,30 +328,6 @@ async function openLastTrace(): Promise<void> {
   await openLastGenerationTrace(workspaceFolder);
 }
 
-function mergeReadmeData(original: ReadmeData, supplement: ReadmeData): ReadmeData {
-  return deepMerge(original, supplement) as ReadmeData;
-}
-
-function deepMerge(original: unknown, supplement: unknown): unknown {
-  if (typeof supplement === 'string') {
-    return supplement !== '' ? supplement : original;
-  }
-  if (Array.isArray(supplement)) {
-    return supplement.length > 0 ? supplement : original;
-  }
-  if (
-    supplement !== null && typeof supplement === 'object' &&
-    original !== null && typeof original === 'object' &&
-    !Array.isArray(original)
-  ) {
-    const result: Record<string, unknown> = { ...(original as Record<string, unknown>) };
-    for (const [key, value] of Object.entries(supplement as Record<string, unknown>)) {
-      result[key] = deepMerge((original as Record<string, unknown>)[key], value);
-    }
-    return result;
-  }
-  return supplement ?? original;
-}
 
 async function saveTraceIfEnabled(
   workspaceFolder: vscode.WorkspaceFolder,

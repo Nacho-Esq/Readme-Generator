@@ -148,7 +148,6 @@ export function buildExtractionPrompt(
     '- Usa archivos de prompts, agentes, workflows, RAG, tools, servicios y comentarios de código para inferir UX, arquitectura, fuentes de conocimiento y guardrails.',
     '- Para variables de entorno, extrae nombres desde .env.example, config o código, y describe su propósito solo si es evidente.',
     '- Incluye advertencias breves para campos importantes que queden vacíos y requieran completar manualmente.',
-    '- En relevantUnreadFiles, lista los archivos del aviso de presupuesto (si los hay) cuya informacion no hayas podido incluir por no haberlos leido, indicando en missingTopics los temas o campos del README que podrian estar cubiertos por ese archivo. Si no hay aviso o todos los campos estan cubiertos, devuelve [].',
     '',
     'Instrucciones específicas por campo:',
     buildFieldInstructionText(),
@@ -159,71 +158,10 @@ export function buildExtractionPrompt(
     formatRepositoryMap(repositoryMap, files.length),
     '',
     'Formato exacto de salida:',
-    JSON.stringify({ data: emptyReadmeData, warnings: ['campo pendiente de completar manualmente'], relevantUnreadFiles: [{ path: 'src/deploy/config.yml', missingTopics: ['despliegue', 'entornos'] }] }, null, 2),
+    JSON.stringify({ data: emptyReadmeData, warnings: ['campo pendiente de completar manualmente'] }, null, 2),
     ...unreadBlock,
     '',
     'Archivos seleccionados:',
-    fileBlocks.join('\n\n')
-  ].join('\n');
-}
-
-export function buildSupplementalExtractionPrompt(
-  previousData: ReadmeData,
-  newFiles: SelectedFile[],
-  workspaceName: string,
-  repositoryMap: RepositoryMap,
-  nanoContext: NanoContext
-): string {
-  const fileBlocks = newFiles.map((file) => {
-    const nanoReason = nanoContext.nanoReasonsByPath.get(file.relativePath);
-    const truncation = file.truncated ? '\n[TRUNCATED]' : '';
-    const lines = [
-      `### FILE: ${file.relativePath}`,
-    ];
-    if (nanoReason) {
-      lines.push(`Relevancia segun selector: ${nanoReason}`);
-    }
-    lines.push('```');
-    lines.push(file.content);
-    lines.push('```');
-    if (truncation) {
-      lines.push(truncation);
-    }
-    return lines.join('\n');
-  });
-
-  return [
-    'Eres un asistente experto en documentación técnica de proyectos de software, especialmente chatbots, agentes, copilotos y asistentes IA.',
-    'Analiza solamente los archivos proporcionados de un repositorio local. No inventes datos.',
-    'El README final se generará en español con una plantilla Jinja/Nunjucks.',
-    '',
-    'CONTEXTO: una primera extraccion del README ya fue realizada con otros archivos del proyecto.',
-    'Tu tarea es leer los archivos adicionales proporcionados y devolver el README actualizado.',
-    '',
-    'Reglas de actualizacion:',
-    '- Devuelve el README completo con todos sus campos (tanto los que actualizas como los que conservas tal cual).',
-    '- Escribe todos los textos en español.',
-    '- Para campos vacios o incompletos: completa con la informacion encontrada en los nuevos archivos.',
-    '- Para campos ya rellenados: actualiza solo si encuentras informacion mas precisa, detallada o diferente que mejore el campo.',
-    '- Para campos ya rellenados sin nueva informacion relevante: copia exactamente el valor actual del README previo sin modificarlo.',
-    '- No inventes informacion. Si un dato no aparece en los archivos ni en el README previo, deja el campo vacio.',
-    '- En relevantUnreadFiles devuelve siempre [].',
-    '',
-    'Instrucciones específicas por campo:',
-    buildFieldInstructionText(),
-    '',
-    `Nombre del workspace: ${workspaceName}`,
-    '',
-    'Mapa estructural del repositorio:',
-    formatRepositoryMap(repositoryMap, newFiles.length),
-    '',
-    'Formato exacto de salida:',
-    JSON.stringify({ data: emptyReadmeData, warnings: ['campo pendiente de completar manualmente'], relevantUnreadFiles: [] }, null, 2),
-    '',
-    'README extraido hasta ahora (toma este como base y actualiza o completa sus campos):',
-    JSON.stringify(previousData, null, 2),
-    '',
-    'Archivos adicionales:',
     fileBlocks.join('\n\n')
   ].join('\n');
 }
@@ -300,27 +238,13 @@ export function getExtractionJsonSchema(): object {
       }
     }
   };
-  const relevantUnreadFilesSchema = {
-    type: 'array',
-    items: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['path', 'missingTopics'],
-      properties: {
-        path: { type: 'string' },
-        missingTopics: stringArray
-      }
-    }
-  };
-
   return {
     type: 'object',
     additionalProperties: false,
-    required: ['data', 'warnings', 'relevantUnreadFiles'],
+    required: ['data', 'warnings'],
     properties: {
       data: schemaFromValue(emptyReadmeData, '', stringArray, envVariableArray),
-      warnings: stringArray,
-      relevantUnreadFiles: relevantUnreadFilesSchema
+      warnings: stringArray
     }
   };
 }

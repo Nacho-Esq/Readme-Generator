@@ -13,12 +13,10 @@ export interface MissingField {
   key: string;
   label: string;
   templateSection: string;
-  importance: 'essential' | 'optional';
 }
 
 export interface ReviewModel {
-  essentialMissing: MissingField[];
-  optionalMissing: MissingField[];
+  missing: MissingField[];
 }
 
 export function createDefaultRenderOptions(): RenderOptions {
@@ -32,14 +30,10 @@ export function analyzeReadmeData(data: ReadmeData): ReviewModel {
       path: field.path,
       key: fieldKey(field.path),
       label: field.label,
-      templateSection: field.templateSection,
-      importance: field.importance
+      templateSection: field.templateSection
     }));
 
-  return {
-    essentialMissing: missing.filter((field) => field.importance === 'essential'),
-    optionalMissing: missing.filter((field) => field.importance === 'optional')
-  };
+  return { missing };
 }
 
 export function prepareDataForReview(data: ReadmeData, renderOptions: RenderOptions): ReadmeData {
@@ -62,10 +56,6 @@ export function completeRenderOptions(data: ReadmeData, renderOptions: RenderOpt
 
   for (const section of sections) {
     const sectionFields = ALL_FIELDS.filter((field) => field.templateSection === section);
-    const hasEssential = sectionFields.some((field) => field.importance === 'essential');
-    if (hasEssential) {
-      continue;
-    }
 
     const hasVisibleData = sectionFields.some((field) => {
       const key = fieldKey(field.path);

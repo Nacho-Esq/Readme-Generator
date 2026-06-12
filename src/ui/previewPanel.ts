@@ -88,12 +88,9 @@ function getPreviewHtml(
   const warningItems = warnings.length
     ? warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join('')
     : '<li>No hay advertencias del modelo.</li>';
-  const essentialItems = review.essentialMissing.length
-    ? review.essentialMissing.map((field) => missingItem(field, false)).join('')
-    : '<li>No hay campos esenciales pendientes.</li>';
-  const optionalCards = review.optionalMissing.length
-    ? review.optionalMissing.map(optionalCard).join('')
-    : '<p class="muted">No hay campos opcionales vacíos.</p>';
+  const missingCards = review.missing.length
+    ? review.missing.map(missingCard).join('')
+    : '<p class="muted">No hay campos pendientes de completar.</p>';
 
   return `<!DOCTYPE html>
 <html lang="es">
@@ -113,7 +110,7 @@ function getPreviewHtml(
     h3 { margin: 0 0 8px; font-size: 13px; }
     ul { padding-left: 20px; }
     .critical { color: var(--vscode-errorForeground); font-weight: 700; text-transform: uppercase; }
-    .optional-card { border: 1px solid var(--vscode-panel-border); padding: 10px; margin: 10px 0; background: var(--vscode-editor-background); }
+    .missing-card { border: 1px solid var(--vscode-panel-border); padding: 10px; margin: 10px 0; background: var(--vscode-editor-background); }
     .card-actions { display: flex; gap: 8px; margin-top: 8px; }
     .toggle { color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); }
     .toggle.active { color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
@@ -131,12 +128,8 @@ function getPreviewHtml(
   <div class="layout">
     <div>
       <section>
-        <h2>Campos esenciales pendientes</h2>
-        <ul>${essentialItems}</ul>
-      </section>
-      <section>
-        <h2>Campos opcionales vacíos</h2>
-        ${optionalCards}
+        <h2>Campos pendientes</h2>
+        ${missingCards}
       </section>
       <section>
         <h2>Advertencias del modelo</h2>
@@ -169,8 +162,8 @@ function getPreviewHtml(
       return escapeHtml(value).replace(/\\*\\*RELLENAR POR USUARIO\\*\\*/g, '<span class="placeholder">**RELLENAR POR USUARIO**</span>');
     }
 
-    document.querySelectorAll('[data-optional-key]').forEach((card) => {
-      const key = card.getAttribute('data-optional-key');
+    document.querySelectorAll('[data-missing-key]').forEach((card) => {
+      const key = card.getAttribute('data-missing-key');
       card.querySelector('[data-action="keep"]').addEventListener('click', () => {
         renderOptions.omitFields[key] = false;
         card.querySelectorAll('.toggle').forEach((button) => button.classList.remove('active'));
@@ -199,8 +192,8 @@ function getPreviewHtml(
 </html>`;
 }
 
-function optionalCard(field: MissingField): string {
-  return `<div class="optional-card" data-optional-key="${escapeAttribute(field.key)}">
+function missingCard(field: MissingField): string {
+  return `<div class="missing-card" data-missing-key="${escapeAttribute(field.key)}">
     <h3>${escapeHtml(field.label)}</h3>
     <div class="muted">${escapeHtml(field.path)}</div>
     <div class="card-actions">
@@ -208,10 +201,6 @@ function optionalCard(field: MissingField): string {
       <button class="toggle" data-action="remove">Eliminar sección</button>
     </div>
   </div>`;
-}
-
-function missingItem(field: MissingField, includePath: boolean): string {
-  return `<li><span class="critical">${escapeHtml(field.label)}: RELLENAR POR USUARIO</span>${includePath ? ` <span class="muted">${escapeHtml(field.path)}</span>` : ''}</li>`;
 }
 
 function normalizeRenderOptions(value: unknown): RenderOptions {

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { FieldDefinition, FORM_SECTIONS, fieldKey } from '../readme/fieldMetadata';
+import { getFieldInstruction } from '../prompt/fieldInstructions';
 import { FILL_PLACEHOLDER, isPlaceholderValue, RenderOptions, ReviewModel } from '../readme/reviewModel';
 import { ReadmeData } from '../types';
 
@@ -8,7 +9,7 @@ type EditResult =
   | { action: 'cancel' };
 
 type RenderPreview = (data: ReadmeData, renderOptions: RenderOptions) => Promise<string>;
-type PendingField = FieldDefinition & { key: string };
+type PendingField = FieldDefinition & { key: string; sectionTitle: string };
 
 export class EditFormPanel {
   static show(
@@ -122,11 +123,11 @@ function getEditHtml(
     fieldset { border: 1px solid var(--vscode-panel-border); margin: 12px 0; padding: 12px; }
     fieldset.omitted { display: none; }
     label { display: block; font-weight: 600; margin-bottom: 6px; }
+    .section-prefix { color: var(--vscode-descriptionForeground); font-weight: 400; font-size: 11px; }
     textarea { width: 100%; box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); padding: 8px; font-family: var(--vscode-editor-font-family); min-height: 82px; resize: vertical; }
-    .missing label::after { content: " pendiente"; color: var(--vscode-errorForeground); font-weight: 700; text-transform: uppercase; }
+    textarea::placeholder { color: var(--vscode-input-placeholderForeground); font-style: italic; }
+    .missing label::before { content: "pendiente"; display: block; color: var(--vscode-errorForeground); font-weight: 700; text-transform: uppercase; }
     .missing textarea { border-color: var(--vscode-errorForeground); color: var(--vscode-errorForeground); font-weight: 700; }
-    .essential label::before { content: "Esencial "; display: inline-block; margin-right: 6px; color: var(--vscode-errorForeground); font-size: 11px; text-transform: uppercase; }
-    .optional label::before { content: "Opcional "; display: inline-block; margin-right: 6px; color: var(--vscode-descriptionForeground); font-size: 11px; text-transform: uppercase; }
     .field-header { display: flex; gap: 8px; justify-content: space-between; align-items: start; }
     .field-header label { margin-right: 8px; }
     .hint, .muted { color: var(--vscode-descriptionForeground); }
@@ -285,37 +286,40 @@ function getEditHtml(
 }
 
 function getPendingFields(review: ReviewModel): PendingField[] {
-  const missingPaths = new Set([
-    ...review.essentialMissing.map((field) => field.path),
-    ...review.optionalMissing.map((field) => field.path)
-  ]);
+  const missingPaths = new Set(review.missing.map((field) => field.path));
   return FORM_SECTIONS
-    .flatMap((section) => section.fields)
+    .flatMap((section) => section.fields.map((field) => ({ ...field, sectionTitle: section.title })))
     .filter((field) => missingPaths.has(field.path))
     .map((field) => ({ ...field, key: fieldKey(field.path) }));
 }
 
-function fieldEditor(field: FieldDefinition, data: ReadmeData): string {
+function fieldEditor(field: PendingField, data: ReadmeData): string {
   const rawValue = getPathValue(data, field.path);
   const value = formatValue(rawValue, field);
+  const isMissing = value.trim() === '' || value.split('\n').some((line) => isPlaceholderValue(line) || line.includes(FILL_PLACEHOLDER));
+  const displayValue = isMissing ? '' : value;
   const hint = field.hint || (field.kind === 'list' ? 'Un valor por linea' : '');
   const key = fieldKey(field.path);
-  const classes = [
-    field.importance,
-    value.split('\n').some((line) => isPlaceholderValue(line) || line.includes(FILL_PLACEHOLDER)) ? 'missing' : ''
-  ].filter(Boolean).join(' ');
-  const discardButton = field.importance === 'optional'
-    ? '<button type="button" class="danger" data-action="discard">Descartar campo</button>'
-    : '';
+  const classes = isMissing ? 'missing' : '';
+  const discardButton = '<button type="button" class="danger" data-action="discard">Descartar campo</button>';
+  const placeholder = getPlaceholderText(field.path);
 
   return `<fieldset class="${escapeAttribute(classes)}" data-field-key="${escapeAttribute(key)}">
     <div class="field-header">
-      <label for="${escapeAttribute(field.path)}">${escapeHtml(field.label)}</label>
+      <label for="${escapeAttribute(field.path)}"><span class="section-prefix">${escapeHtml(field.sectionTitle)} →</span> ${escapeHtml(field.label)}</label>
       ${discardButton}
     </div>
-    <textarea id="${escapeAttribute(field.path)}">${escapeHtml(value)}</textarea>
+    <textarea id="${escapeAttribute(field.path)}" placeholder="${escapeAttribute(placeholder)}">${escapeHtml(displayValue)}</textarea>
     ${hint ? `<div class="hint">${escapeHtml(hint)}</div>` : ''}
   </fieldset>`;
+}
+
+function getPlaceholderText(path: string): string {
+  const instruction = getFieldInstruction(path);
+  if (!instruction || instruction.length > 200) {
+    return 'Completa con la información del campo.';
+  }
+  return instruction;
 }
 
 function normalizeRenderOptions(value: unknown): RenderOptions {

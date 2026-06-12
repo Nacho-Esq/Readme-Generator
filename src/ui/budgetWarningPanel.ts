@@ -44,12 +44,12 @@ export class BudgetWarningPanel {
       };
 
       panel.webview.onDidReceiveMessage((message) => {
-        panel.dispose();
         if (message.command === 'expand' && Array.isArray(message.selectedPaths) && message.selectedPaths.length > 0) {
           doResolve({ action: 'expand', selectedPaths: message.selectedPaths as string[] });
         } else {
           doResolve({ action: 'continue', selectedPaths: [] });
         }
+        panel.dispose();
       });
 
       panel.onDidDispose(() => {

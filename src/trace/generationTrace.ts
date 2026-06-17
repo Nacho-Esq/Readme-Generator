@@ -14,8 +14,6 @@ export interface FinalReadFileTrace {
   contentChars: number;
   estimatedTokens: number;
   truncated: boolean;
-  score: number;
-  reasons: string[];
 }
 
 export interface GenerationTrace {
@@ -33,7 +31,6 @@ export interface GenerationTrace {
   llmDiscardedSummary: DiscardedFileSummary[];
   finalReadFiles: FinalReadFileTrace[];
   warnings: string[];
-  usedFallback: boolean;
   mainModelDeployment: string;
   nanoTokenUsage: TokenUsage | null;
   mainModelTokenUsage: TokenUsage | null;
@@ -63,7 +60,6 @@ export function createGenerationTrace(
     llmDiscardedSummary: [],
     finalReadFiles: [],
     warnings: [],
-    usedFallback: false,
     mainModelDeployment: '',
     nanoTokenUsage: null,
     mainModelTokenUsage: null
@@ -75,9 +71,7 @@ export function buildFinalReadFileTrace(files: SelectedFile[]): FinalReadFileTra
     path: file.relativePath,
     contentChars: file.content.length,
     estimatedTokens: estimateTokens(file.content),
-    truncated: file.truncated,
-    score: file.score,
-    reasons: file.reasons
+    truncated: file.truncated
   }));
 }
 
@@ -191,7 +185,6 @@ function formatTraceMarkdown(trace: GenerationTrace): string {
   sections.push(`- **Generado**: ${trace.generatedAt}`);
   sections.push(`- **Read depth**: ${trace.readDepth} (budget modelo principal: ${trace.tokenBudget.toLocaleString('es-ES')} tokens)`);
   sections.push('- **Límite por fichero**: 200 KB (ambas fases)');
-  sections.push(`- **Fallback usado**: ${trace.usedFallback ? 'sí' : 'no'}`);
   sections.push('');
   sections.push('---');
   sections.push('');
@@ -207,7 +200,7 @@ function formatTraceMarkdown(trace: GenerationTrace): string {
       `| Nano (pre-selección) | ${trace.preSelectionDeployment} | ${trace.nanoTokenUsage.inputTokens.toLocaleString('es-ES')} | ${trace.nanoTokenUsage.outputTokens.toLocaleString('es-ES')} | ${nanoCostStr} |`
     );
   } else {
-    sections.push(`| Nano (pre-selección) | ${trace.preSelectionDeployment || '—'} | N/A — fallback | N/A | N/A |`);
+    sections.push(`| Nano (pre-selección) | ${trace.preSelectionDeployment || '—'} | N/A | N/A | N/A |`);
   }
 
   if (trace.mainModelTokenUsage) {
@@ -224,7 +217,7 @@ function formatTraceMarkdown(trace: GenerationTrace): string {
   sections.push('');
 
   // Phase 1: local pre-filter
-  sections.push('## 1️⃣ Pre-filtro heurístico');
+  sections.push('## 1️⃣ Pre-filtro de archivos');
   sections.push('');
   if (totalLocalDiscarded === 0) {
     sections.push('Ningún archivo descartado en esta fase.');
@@ -251,12 +244,12 @@ function formatTraceMarkdown(trace: GenerationTrace): string {
       `Tokens reales: ${trace.nanoTokenUsage.inputTokens.toLocaleString('es-ES')} input + ${trace.nanoTokenUsage.outputTokens.toLocaleString('es-ES')} output | Coste estimado: ${nanoCostStr}`
     );
   } else {
-    sections.push('Tokens reales: N/A (fallback a ranking local)');
+    sections.push('Tokens reales: N/A');
   }
   sections.push('');
 
-  if (trace.usedFallback || trace.llmSelection.length === 0) {
-    sections.push('_Fallback activo: se usó el ranking heurístico local._');
+  if (trace.llmSelection.length === 0) {
+    sections.push('_Sin datos de selección._');
   } else {
     sections.push('### Seleccionados (orden de importancia):');
     sections.push('');
@@ -265,9 +258,7 @@ function formatTraceMarkdown(trace: GenerationTrace): string {
       sections.push(`${i + 1}. \`${item.path}\` — ${item.reason}`);
     }
 
-    // Discarded by nano
     const nanoDiscardedCount = trace.llmDiscardedFiles.length;
-
     sections.push('');
     sections.push(`### Descartados por el nano: ${nanoDiscardedCount}`);
     sections.push('');

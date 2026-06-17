@@ -199,7 +199,7 @@ function formatRepositoryMap(repositoryMap: RepositoryMap, selectedFileCount: nu
 
   return [
     `Workspace: ${repositoryMap.workspaceName}`,
-    `Estadisticas: ${repositoryMap.stats.candidateFiles} archivos candidatos, ${selectedFileCount} archivos seleccionados, ${repositoryMap.stats.sourceFiles} fuente, ${repositoryMap.stats.documentationFiles} documentacion, ${repositoryMap.stats.configurationFiles} configuracion, ${repositoryMap.stats.totalBytes} bytes candidatos.`,
+    `Estadisticas: ${repositoryMap.stats.candidateFiles} archivos candidatos, ${selectedFileCount} archivos seleccionados, ${repositoryMap.stats.sourceFiles} fuente, ${repositoryMap.stats.documentationFiles} documentacion, ${repositoryMap.stats.totalBytes} bytes candidatos.`,
     '',
     'Tecnologias detectadas:',
     technologies,

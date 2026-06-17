@@ -6,36 +6,18 @@ export interface CandidateFile {
   size: number;
 }
 
-export interface RankedFile extends CandidateFile {
-  score: number;
-  reasons: string[];
-}
-
-export interface SelectedFile extends RankedFile {
+export interface SelectedFile extends CandidateFile {
   content: string;
   truncated: boolean;
 }
 
 export type ReadDepth = 'básico' | 'detallado' | 'profundo' | 'personalizado';
 
-export type FileKind = 'source' | 'docs' | 'config' | 'infra' | 'template' | 'test' | 'generated' | 'other';
-
-export interface FileOverview extends RankedFile {
-  extension: string;
-  modulePath: string;
-  kind: FileKind;
-  isEntrypoint: boolean;
-  isTooLarge: boolean;
-  importsExports: string[];
-  exportedFunctions: string[];
-  packageScripts: string[];
-}
-
 export interface DiscardedFileSummary {
   reason: string;
   count: number;
   examples: string[];
-  stage?: 'local' | 'llm' | 'fallback';
+  stage?: 'local' | 'llm';
 }
 
 export interface FileSelectionItem {
@@ -50,8 +32,7 @@ export interface FileSelectionResult {
 }
 
 export interface FileInventory {
-  selectorInventory: FileOverview[];
-  fallbackRanking: FileOverview[];
+  selectorInventory: CandidateFile[];
   discardedSummary: DiscardedFileSummary[];
 }
 
@@ -71,7 +52,6 @@ export interface ProjectStats {
   candidateFiles: number;
   sourceFiles: number;
   documentationFiles: number;
-  configurationFiles: number;
   totalBytes: number;
 }
 

@@ -10,10 +10,9 @@ import {
   createDefaultRenderOptions,
   prepareDataForReview
 } from './readme/reviewModel';
-import { buildFileInventory } from './scanner/fileRanker';
-import { PRE_SELECTION_MAX_BYTES_PER_FILE, readAllCandidateFiles, scanRepository, splitByTokenBudget } from './scanner/fileScanner';
+import { buildFileInventory, PRE_SELECTION_MAX_BYTES_PER_FILE, readAllCandidateFiles, scanRepository, splitByTokenBudget } from './scanner/fileScanner';
 import { analyzeRepository } from './scanner/repositoryAnalyzer';
-import { DiscardedFileSummary, FileOverview, FileSelectionItem, FileSelectionResult } from './scanner/types';
+import { CandidateFile, DiscardedFileSummary, FileSelectionItem, FileSelectionResult } from './scanner/types';
 import { TokenUsage } from './types';
 import { TemplateRenderer } from './template/templateRenderer';
 import {
@@ -96,33 +95,39 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
     trace.mainModelDeployment = settings.deployment;
     trace.preSelectionFilesSentCount = allCandidateFiles.length;
     trace.selectionPrompt = contentPrompt;
-    vscode.window.setStatusBarMessage(
-      `README Generator AI: seleccionando archivos clave con modelo ligero...`,
-      4_000
-    );
-    const selection = await selectFilesForDetailedRead(
-      client,
-      contentPrompt,
-      preSelectionDeployment,
-      inventory.selectorInventory,
-      inventory.fallbackRanking
-    );
-    trace.llmSelection = selection.llmSelection;
-    trace.llmDiscardedFiles = selection.nanoDiscardedFiles;
-    trace.llmDiscardedSummary = selection.discardedSummary;
-    trace.usedFallback = selection.usedFallback;
-    trace.nanoTokenUsage = selection.nanoTokenUsage;
-    repositoryMap = await analyzeRepository(
-      candidates,
-      workspaceFolder,
-      inventory.discardedSummary.concat(selection.discardedSummary)
-    );
+    vscode.window.setStatusBarMessage(`README Generator AI: seleccionando archivos clave con modelo ligero...`, 4_000);
+    let nanoResult;
+    try {
+      nanoResult = await client.preSelectImportantFiles(contentPrompt, preSelectionDeployment);
+    } catch (error) {
+      vscode.window.showErrorMessage(
+        `El modelo '${preSelectionDeployment}' no ha podido ordenar los archivos del repositorio. ` +
+        `Revisa la configuración del modelo de pre-selección (preSelectionDeployment) y comprueba que el endpoint sea accesible. ` +
+        `Detalle: ${asErrorMessage(error)}`
+      );
+      return;
+    }
+    const validated = validateFileSelection(nanoResult.data, inventory.selectorInventory);
+    if (validated.ranking.length === 0) {
+      vscode.window.showErrorMessage(
+        `El modelo '${preSelectionDeployment}' no devolvió ninguna ruta de archivo válida. ` +
+        `Verifica que el modelo de pre-selección esté configurado correctamente.`
+      );
+      return;
+    }
+    trace.llmSelection = nanoResult.data.selectedFiles;
+    trace.llmDiscardedFiles = nanoResult.data.discardedFiles;
+    const llmDiscardedSummary = [summarizeLlmDiscarded(inventory.selectorInventory, validated.ranking)];
+    trace.llmDiscardedSummary = llmDiscardedSummary;
+    const nanoWarnings = nanoResult.data.warnings.concat(validated.warnings);
+    trace.nanoTokenUsage = nanoResult.tokenUsage;
+    repositoryMap.discardedSummary = inventory.discardedSummary.concat(llmDiscardedSummary);
     trace.repositoryMap = repositoryMap;
 
-    const { fitting, overflow } = splitByTokenBudget(selection.ranking, tokenBudget);
-    const nanoReasonsByPath = new Map(selection.llmSelection.map((item) => [item.path, item.reason]));
+    const { fitting, overflow } = splitByTokenBudget(validated.ranking, tokenBudget);
+    const nanoReasonsByPath = new Map(nanoResult.data.selectedFiles.map((item) => [item.path, item.reason]));
 
-    let filesToRead: FileOverview[] = [...fitting];
+    let filesToRead: CandidateFile[] = [...fitting];
 
     if (overflow.length > 0) {
       const inputCostPerToken = getInputCostPerToken(settings.deployment);
@@ -140,7 +145,7 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
         const overflowByPath = new Map(overflow.map((f) => [f.relativePath, f]));
         const extras = budgetResult.selectedPaths
           .map((p) => overflowByPath.get(p))
-          .filter((f): f is FileOverview => f !== undefined);
+          .filter((f): f is CandidateFile => f !== undefined);
         filesToRead = [...fitting, ...extras];
       }
     }
@@ -155,11 +160,11 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
       return;
     }
     trace.finalReadFiles = buildFinalReadFileTrace(selectedFiles);
-    trace.warnings = selection.warnings;
+    trace.warnings = nanoWarnings;
     await saveTraceIfEnabled(workspaceFolder, settings.debugTrace, trace);
 
     const readPaths = new Set(selectedFiles.map((f) => f.relativePath));
-    const unreadFiles = selection.ranking
+    const unreadFiles = validated.ranking
       .filter((f) => !readPaths.has(f.relativePath))
       .map((f) => ({
         path: f.relativePath,
@@ -176,7 +181,7 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
     trace.mainModelTokenUsage = extractionResult.tokenUsage;
     const extraction = extractionResult.data;
     let finalReadmeData = extraction.data;
-    let finalWarnings = selection.warnings.concat(extraction.warnings);
+    let finalWarnings = nanoWarnings.concat(extraction.warnings);
 
     trace.warnings = finalWarnings;
     await saveTraceIfEnabled(workspaceFolder, settings.debugTrace, trace);
@@ -217,65 +222,12 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
   }
 }
 
-interface DetailedReadSelection {
-  ranking: FileOverview[];
-  llmSelection: FileSelectionItem[];
-  nanoDiscardedFiles: FileSelectionItem[];
-  discardedSummary: DiscardedFileSummary[];
-  warnings: string[];
-  usedFallback: boolean;
-  nanoTokenUsage: TokenUsage | null;
-}
-
-async function selectFilesForDetailedRead(
-  client: AzureResponsesClient,
-  prompt: string,
-  deploymentOverride: string,
-  inventory: FileOverview[],
-  fallbackRanking: FileOverview[]
-): Promise<DetailedReadSelection> {
-  try {
-    const apiResult = await client.preSelectImportantFiles(prompt, deploymentOverride);
-    const validated = validateFileSelection(apiResult.data, inventory);
-    if (validated.ranking.length === 0) {
-      throw new Error('El selector LLM no devolvio rutas validas.');
-    }
-
-    return {
-      ranking: validated.ranking,
-      llmSelection: apiResult.data.selectedFiles,
-      nanoDiscardedFiles: apiResult.data.discardedFiles,
-      discardedSummary: [summarizeLlmDiscarded(inventory, validated.ranking)],
-      warnings: apiResult.data.warnings.concat(validated.warnings),
-      usedFallback: false,
-      nanoTokenUsage: apiResult.tokenUsage
-    };
-  } catch (error) {
-    return {
-      ranking: fallbackRanking,
-      llmSelection: [],
-      nanoDiscardedFiles: [],
-      discardedSummary: [
-        {
-          reason: 'fallback to local heuristic ranking',
-          count: 0,
-          examples: [],
-          stage: 'fallback'
-        }
-      ],
-      warnings: [`No se pudo usar el selector LLM de archivos; se uso el ranking local: ${asErrorMessage(error)}`],
-      usedFallback: true,
-      nanoTokenUsage: null
-    };
-  }
-}
-
 function validateFileSelection(
   result: FileSelectionResult,
-  inventory: FileOverview[]
-): { ranking: FileOverview[]; warnings: string[] } {
+  inventory: CandidateFile[]
+): { ranking: CandidateFile[]; warnings: string[] } {
   const byPath = new Map(inventory.map((file) => [file.relativePath, file]));
-  const selected = new Map<string, FileOverview>();
+  const selected = new Map<string, CandidateFile>();
   const invalidPaths: string[] = [];
 
   for (const item of result.selectedFiles) {
@@ -297,7 +249,7 @@ function validateFileSelection(
   };
 }
 
-function summarizeLlmDiscarded(inventory: FileOverview[], selectedRanking: FileOverview[]): DiscardedFileSummary {
+function summarizeLlmDiscarded(inventory: CandidateFile[], selectedRanking: CandidateFile[]): DiscardedFileSummary {
   const selectedPaths = new Set(selectedRanking.map((file) => file.relativePath));
   const discarded = inventory.filter((file) => !selectedPaths.has(file.relativePath));
   return {

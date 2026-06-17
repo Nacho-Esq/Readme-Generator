@@ -92,7 +92,6 @@ function formatRepositoryMapForSelection(repositoryMap: RepositoryMap): string {
     entrypoints: repositoryMap.entrypoints,
     modules: repositoryMap.modules,
     documentation: repositoryMap.documentation,
-    structure: repositoryMap.structure,
     discardedSummary: repositoryMap.discardedSummary,
     stats: repositoryMap.stats
   }, null, 2);

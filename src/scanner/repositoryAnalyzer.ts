@@ -11,7 +11,6 @@ import {
 
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py']);
 const DOC_EXTENSIONS = new Set(['.md']);
-const CONFIG_EXTENSIONS = new Set(['.json', '.toml', '.yaml', '.yml', '.env', '.example']);
 const ENTRYPOINT_NAMES = new Set([
   'extension.ts',
   'index.ts',
@@ -68,7 +67,6 @@ export async function analyzeRepository(
       candidateFiles: sorted.length,
       sourceFiles: sorted.filter((file) => SOURCE_EXTENSIONS.has(path.extname(file.relativePath).toLowerCase())).length,
       documentationFiles: sorted.filter((file) => DOC_EXTENSIONS.has(path.extname(file.relativePath).toLowerCase())).length,
-      configurationFiles: sorted.filter((file) => isConfigurationFile(file.relativePath)).length,
       totalBytes: sorted.reduce((total, file) => total + file.size, 0)
     }
   };
@@ -286,17 +284,6 @@ function classifyModule(modulePath: string): DetectedModule['kind'] {
     return 'source';
   }
   return 'other';
-}
-
-function isConfigurationFile(relativePath: string): boolean {
-  const lower = relativePath.toLowerCase();
-  const basename = path.basename(lower);
-  return (
-    CONFIG_EXTENSIONS.has(path.extname(lower)) ||
-    basename === 'dockerfile' ||
-    basename.startsWith('docker-compose') ||
-    basename.includes('pipeline')
-  );
 }
 
 async function readJsonFile<T>(workspaceFolder: vscode.WorkspaceFolder, relativePath: string): Promise<T | undefined> {

@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { CandidateFile, FileOverview, SelectedFile } from './types';
+import { CandidateFile, DiscardedFileSummary, FileInventory, SelectedFile } from './types';
 
 export const PRE_SELECTION_MAX_BYTES_PER_FILE = 200_000;
 
@@ -16,39 +16,31 @@ const IGNORE_DIRECTORIES = new Set([
   '__pycache__'
 ]);
 
-const ALLOWED_EXTENSIONS = new Set([
-  '.ts',
-  '.tsx',
-  '.js',
-  '.jsx',
-  '.mjs',
-  '.cjs',
-  '.py',
-  '.json',
-  '.toml',
-  '.yaml',
-  '.yml',
-  '.md',
-  '.env',
-  '.example',
-  '.tf',
-  '.bicep',
-  '.sh'
+const IGNORE_EXTENSIONS = new Set([
+  // Images (binary, not useful as text)
+  '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.ico', '.tiff', '.psd', '.ai', '.eps',
+  // SVG (XML but diagram content is not useful for README generation)
+  '.svg',
+  // Video / audio
+  '.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.webm',
+  '.mp3', '.wav', '.flac', '.ogg', '.aac', '.m4a',
+  // PDF (binary encoding, TextDecoder produces garbage)
+  '.pdf',
+  // Lock files (version pins for transitive deps — pure noise)
+  '.lock',
+  // Compiled / native binaries
+  '.exe', '.dll', '.so', '.dylib', '.class', '.pyc', '.pyd', '.pyo', '.wasm',
+  // Archives and packages
+  '.zip', '.tar', '.gz', '.tgz', '.bz2', '.7z', '.rar',
+  '.jar', '.war', '.ear', '.whl', '.vsix', '.deb', '.rpm',
+  // Fonts
+  '.ttf', '.otf', '.woff', '.woff2', '.eot',
+  // Databases
+  '.sqlite', '.db', '.mdb',
+  // Other binary / data formats
+  '.bin', '.dat', '.dump', '.img', '.iso',
 ]);
 
-const ALWAYS_INCLUDE_FILES = new Set([
-  'package.json',
-  'requirements.txt',
-  'pyproject.toml',
-  'readme.md',
-  'readme.generated.md',
-  '.env.example',
-  'dockerfile',
-  'docker-compose.yml',
-  'docker-compose.yaml',
-  'azure-pipelines.yml',
-  'azure-pipelines.yaml'
-]);
 
 export async function scanRepository(workspaceFolder: vscode.WorkspaceFolder): Promise<CandidateFile[]> {
   const pattern = new vscode.RelativePattern(workspaceFolder, '**/*');
@@ -62,9 +54,8 @@ export async function scanRepository(workspaceFolder: vscode.WorkspaceFolder): P
       continue;
     }
 
-    const basename = path.basename(relativePath).toLowerCase();
     const ext = path.extname(relativePath).toLowerCase();
-    if (!ALLOWED_EXTENSIONS.has(ext) && !ALWAYS_INCLUDE_FILES.has(basename)) {
+    if (IGNORE_EXTENSIONS.has(ext)) {
       continue;
     }
 
@@ -81,8 +72,33 @@ export async function scanRepository(workspaceFolder: vscode.WorkspaceFolder): P
   return candidates;
 }
 
+export async function buildFileInventory(files: CandidateFile[]): Promise<FileInventory> {
+  const selectorInventory: CandidateFile[] = [];
+  const discarded = new Map<string, { count: number; examples: string[] }>();
+
+  for (const file of files) {
+    const reason = discardReason(file.relativePath, file.size);
+    if (reason) {
+      const entry = discarded.get(reason) ?? { count: 0, examples: [] };
+      entry.count++;
+      if (entry.examples.length < 8) {
+        entry.examples.push(file.relativePath);
+      }
+      discarded.set(reason, entry);
+    } else {
+      selectorInventory.push(file);
+    }
+  }
+
+  const discardedSummary: DiscardedFileSummary[] = Array.from(discarded.entries()).map(
+    ([reason, { count, examples }]) => ({ reason, count, examples, stage: 'local' as const })
+  );
+
+  return { selectorInventory, discardedSummary };
+}
+
 export async function readAllCandidateFiles(
-  files: FileOverview[],
+  files: CandidateFile[],
   maxBytesPerFile: number
 ): Promise<SelectedFile[]> {
   const result: SelectedFile[] = [];
@@ -107,14 +123,14 @@ export async function readAllCandidateFiles(
 }
 
 export function splitByTokenBudget(
-  rankedFiles: FileOverview[],
+  files: CandidateFile[],
   maxTotalTokens: number
-): { fitting: FileOverview[]; overflow: FileOverview[] } {
-  const fitting: FileOverview[] = [];
-  const overflow: FileOverview[] = [];
+): { fitting: CandidateFile[]; overflow: CandidateFile[] } {
+  const fitting: CandidateFile[] = [];
+  const overflow: CandidateFile[] = [];
   let totalTokens = 0;
 
-  for (const file of rankedFiles) {
+  for (const file of files) {
     const tokenEstimate = Math.ceil(file.size / 4);
     if (totalTokens + tokenEstimate <= maxTotalTokens) {
       fitting.push(file);
@@ -129,6 +145,39 @@ export function splitByTokenBudget(
 
 export function estimateTokens(content: string): number {
   return Math.ceil(content.length / 4);
+}
+
+function discardReason(relativePath: string, size: number): string | undefined {
+  const lower = relativePath.toLowerCase();
+  const basename = path.basename(lower);
+
+  if (
+    basename === 'package-lock.json' ||
+    basename === 'npm-shrinkwrap.json' ||
+    basename === 'pnpm-lock.yaml' ||
+    basename === 'go.sum' ||
+    basename === 'bun.lockb'
+  ) {
+    return 'lockfile';
+  }
+
+  if (lower.includes('/dist/') || lower.includes('/build/') || basename.includes('.generated.')) {
+    return 'generated artifact';
+  }
+
+  if (lower.includes('/__snapshots__/') || lower.includes('/fixtures/') || lower.includes('/fixture/')) {
+    return 'test fixture or snapshot';
+  }
+
+  if (basename.endsWith('.min.js') || basename.endsWith('.bundle.js')) {
+    return 'minified or bundled asset';
+  }
+
+  if (size > 1_000_000) {
+    return 'oversized file';
+  }
+
+  return undefined;
 }
 
 function shouldIgnore(relativePath: string): boolean {

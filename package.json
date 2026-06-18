@@ -93,12 +93,12 @@
             "Consumo bajo: aprox. 30k tokens de lectura detallada.",
             "Consumo medio: aprox. 90k tokens de lectura detallada.",
             "Consumo elevado: aprox. 180k tokens de lectura detallada.",
-            "Presupuesto definido manualmente en el ajuste customTokenBudget."
+            "Presupuesto definido manualmente en el ajuste readDepthCustomBudget."
           ],
           "markdownDescription": "Controla el presupuesto de tokens del modelo principal al leer los archivos seleccionados. Los tokens consumidos por el modelo ligero de pre-seleccion son independientes y no se cuentan aqui.",
           "scope": "resource"
         },
-        "readmeGeneratorAi.customTokenBudget": {
+        "readmeGeneratorAi.readDepthCustomBudget": {
           "type": "number",
           "default": 30000,
           "minimum": 1000,

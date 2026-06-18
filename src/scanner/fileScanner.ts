@@ -2,6 +2,13 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { CandidateFile, DiscardedFileSummary, FileInventory, SelectedFile } from './types';
 
+export interface ReadOptions {
+  /** Contenido ya resuelto (redactado o editado por el usuario) que sustituye la lectura de disco. */
+  overrides?: Map<string, string>;
+  /** Rutas que no deben leerse ni enviarse al modelo. */
+  exclude?: Set<string>;
+}
+
 export const PRE_SELECTION_MAX_BYTES_PER_FILE = 200_000;
 
 const IGNORE_DIRECTORIES = new Set([
@@ -99,27 +106,45 @@ export async function buildFileInventory(files: CandidateFile[]): Promise<FileIn
 
 export async function readAllCandidateFiles(
   files: CandidateFile[],
-  maxBytesPerFile: number
+  maxBytesPerFile: number,
+  options: ReadOptions = {}
 ): Promise<SelectedFile[]> {
+  const { overrides, exclude } = options;
   const result: SelectedFile[] = [];
   for (const file of files) {
-    try {
-      const bytes = await vscode.workspace.fs.readFile(file.uri);
-      const slice = bytes.slice(0, maxBytesPerFile);
-      const content = new TextDecoder('utf-8', { fatal: false }).decode(slice);
-      if (content.length === 0) {
+    if (exclude?.has(file.relativePath)) {
+      continue;
+    }
+    const override = overrides?.get(file.relativePath);
+    if (override !== undefined) {
+      if (override.length === 0) {
         continue;
       }
-      result.push({
-        ...file,
-        content,
-        truncated: bytes.byteLength > slice.byteLength
-      });
-    } catch {
-      // Keep generation moving if one file cannot be read.
+      result.push({ ...file, content: override, truncated: false });
+      continue;
     }
+    const read = await readRawContent(file, maxBytesPerFile);
+    if (!read || read.content.length === 0) {
+      continue;
+    }
+    result.push({ ...file, content: read.content, truncated: read.truncated });
   }
   return result;
+}
+
+export async function readRawContent(
+  file: CandidateFile,
+  maxBytesPerFile: number
+): Promise<{ content: string; truncated: boolean } | undefined> {
+  try {
+    const bytes = await vscode.workspace.fs.readFile(file.uri);
+    const slice = bytes.slice(0, maxBytesPerFile);
+    const content = new TextDecoder('utf-8', { fatal: false }).decode(slice);
+    return { content, truncated: bytes.byteLength > slice.byteLength };
+  } catch {
+    // Keep generation moving if one file cannot be read.
+    return undefined;
+  }
 }
 
 export function splitByTokenBudget(

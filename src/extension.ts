@@ -10,10 +10,9 @@ import {
   createDefaultRenderOptions,
   prepareDataForReview
 } from './readme/reviewModel';
-import { buildFileInventory, PRE_SELECTION_MAX_BYTES_PER_FILE, readAllCandidateFiles, scanRepository, splitByTokenBudget } from './scanner/fileScanner';
+import { buildFileInventory, PRE_SELECTION_MAX_BYTES_PER_FILE, readAllCandidateFiles, readRawContent, scanRepository, splitByTokenBudget } from './scanner/fileScanner';
 import { analyzeRepository } from './scanner/repositoryAnalyzer';
-import { CandidateFile, DiscardedFileSummary, FileSelectionItem, FileSelectionResult } from './scanner/types';
-import { TokenUsage } from './types';
+import { CandidateFile, DiscardedFileSummary, FileSelectionResult } from './scanner/types';
 import { TemplateRenderer } from './template/templateRenderer';
 import {
   buildFinalReadFileTrace,
@@ -25,7 +24,9 @@ import {
 } from './trace/generationTrace';
 import { BudgetWarningPanel } from './ui/budgetWarningPanel';
 import { EditFormPanel } from './ui/editFormPanel';
-import { asErrorMessage } from './utils/errors';
+import { AutoSensitiveFile, RedactFn, SecurityReviewPanel } from './ui/securityReviewPanel';
+import { asErrorMessage, describePreSelectionError } from './utils/errors';
+import { countRedactions, isEnvFile, redactSecrets } from './utils/secretRedactor';
 
 let statusBarItem: vscode.StatusBarItem | undefined;
 
@@ -84,12 +85,50 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
     trace.localDiscardedSummary = inventory.discardedSummary;
     trace.repositoryMap = repositoryMap;
 
+    const inventoryByPath = new Map(inventory.selectorInventory.map(f => [f.relativePath, f]));
+    const autoSensitiveFiles: AutoSensitiveFile[] = inventory.selectorInventory
+      .map(f => classifySensitiveFile(f.relativePath))
+      .filter((f): f is AutoSensitiveFile => f !== null);
+
+    const redact: RedactFn = async (paths) => {
+      const result = [];
+      for (const relativePath of paths) {
+        const file = inventoryByPath.get(relativePath);
+        if (!file) {
+          continue;
+        }
+        const read = await readRawContent(file, PRE_SELECTION_MAX_BYTES_PER_FILE);
+        if (!read) {
+          continue;
+        }
+        const content = redactSecrets(read.content, relativePath);
+        result.push({ path: relativePath, content, redactionCount: countRedactions(content) });
+      }
+      return result;
+    };
+
+    const securityResult = await SecurityReviewPanel.show(
+      { autoSensitiveFiles, candidateFiles: inventory.selectorInventory.map(f => ({ relativePath: f.relativePath })) },
+      context.extensionUri,
+      redact
+    );
+    if (securityResult.action === 'cancel') {
+      return;
+    }
+    const excludedPaths = new Set(securityResult.excludePaths);
+    const contentOverrides = new Map(securityResult.redactedFiles.map(f => [f.path, f.content]));
+    const sendableInventory = inventory.selectorInventory.filter(f => !excludedPaths.has(f.relativePath));
+    if (sendableInventory.length === 0) {
+      vscode.window.showErrorMessage('No quedan archivos para analizar después de excluir los marcados como confidenciales.');
+      return;
+    }
+
     vscode.window.setStatusBarMessage(
-      `README Generator AI: leyendo repositorio completo (${inventory.selectorInventory.length} archivos)...`,
+      `README Generator AI: leyendo repositorio completo (${sendableInventory.length} archivos)...`,
       6_000
     );
     const preSelectionDeployment = getPreSelectionDeployment(settings);
-    const allCandidateFiles = await readAllCandidateFiles(inventory.selectorInventory, PRE_SELECTION_MAX_BYTES_PER_FILE);
+    const allCandidateFiles = await readAllCandidateFiles(sendableInventory, PRE_SELECTION_MAX_BYTES_PER_FILE, { overrides: contentOverrides, exclude: excludedPaths });
     const contentPrompt = buildContentSelectionPrompt(repositoryMap, allCandidateFiles);
     trace.preSelectionDeployment = preSelectionDeployment;
     trace.mainModelDeployment = settings.deployment;
@@ -100,14 +139,10 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
     try {
       nanoResult = await client.preSelectImportantFiles(contentPrompt, preSelectionDeployment);
     } catch (error) {
-      vscode.window.showErrorMessage(
-        `El modelo '${preSelectionDeployment}' no ha podido ordenar los archivos del repositorio. ` +
-        `Revisa la configuración del modelo de pre-selección (preSelectionDeployment) y comprueba que el endpoint sea accesible. ` +
-        `Detalle: ${asErrorMessage(error)}`
-      );
+      vscode.window.showErrorMessage(describePreSelectionError(error, preSelectionDeployment));
       return;
     }
-    const validated = validateFileSelection(nanoResult.data, inventory.selectorInventory);
+    const validated = validateFileSelection(nanoResult.data, sendableInventory);
     if (validated.ranking.length === 0) {
       vscode.window.showErrorMessage(
         `El modelo '${preSelectionDeployment}' no devolvió ninguna ruta de archivo válida. ` +
@@ -117,7 +152,7 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
     }
     trace.llmSelection = nanoResult.data.selectedFiles;
     trace.llmDiscardedFiles = nanoResult.data.discardedFiles;
-    const llmDiscardedSummary = [summarizeLlmDiscarded(inventory.selectorInventory, validated.ranking)];
+    const llmDiscardedSummary = [summarizeLlmDiscarded(sendableInventory, validated.ranking)];
     trace.llmDiscardedSummary = llmDiscardedSummary;
     const nanoWarnings = nanoResult.data.warnings.concat(validated.warnings);
     trace.nanoTokenUsage = nanoResult.tokenUsage;
@@ -154,7 +189,7 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
       `README Generator AI: leyendo ${filesToRead.length} archivos...`,
       6_000
     );
-    const selectedFiles = await readAllCandidateFiles(filesToRead, PRE_SELECTION_MAX_BYTES_PER_FILE);
+    const selectedFiles = await readAllCandidateFiles(filesToRead, PRE_SELECTION_MAX_BYTES_PER_FILE, { overrides: contentOverrides, exclude: excludedPaths });
     if (selectedFiles.length === 0) {
       vscode.window.showErrorMessage('No se pudieron leer los archivos seleccionados.');
       return;
@@ -247,6 +282,22 @@ function validateFileSelection(
     ranking: Array.from(selected.values()),
     warnings
   };
+}
+
+const KEY_MATERIAL_PATTERN = /(?:\.(?:pem|key|pfx|p12|keystore|jks|asc|gpg)|(?:^|\/)id_(?:rsa|dsa|ecdsa|ed25519))$/i;
+const CREDENTIAL_FILE_PATTERN = /(?:(?:^|\/)\.(?:npmrc|netrc|pgpass|htpasswd)|\.tfvars|(?:^|\/)(?:secrets?|credentials?)\.[^/]+)$/i;
+
+function classifySensitiveFile(relativePath: string): AutoSensitiveFile | null {
+  if (KEY_MATERIAL_PATTERN.test(relativePath)) {
+    return { path: relativePath, suggested: 'exclude', reason: 'Material criptográfico / clave privada' };
+  }
+  if (isEnvFile(relativePath)) {
+    return { path: relativePath, suggested: 'redact', reason: 'Variables de entorno (.env)' };
+  }
+  if (CREDENTIAL_FILE_PATTERN.test(relativePath)) {
+    return { path: relativePath, suggested: 'redact', reason: 'Posibles credenciales' };
+  }
+  return null;
 }
 
 function summarizeLlmDiscarded(inventory: CandidateFile[], selectedRanking: CandidateFile[]): DiscardedFileSummary {

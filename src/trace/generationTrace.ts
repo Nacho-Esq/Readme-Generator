@@ -16,12 +16,20 @@ export interface FinalReadFileTrace {
   truncated: boolean;
 }
 
+export interface SecuritySummary {
+  /** Archivos que el usuario excluyó: no se enviaron a ningún modelo. */
+  excludedPaths: string[];
+  /** Archivos enviados con sus valores codificados. */
+  redactedFiles: Array<{ path: string; redactionCount: number }>;
+}
+
 export interface GenerationTrace {
   workspaceName: string;
   generatedAt: string;
   readDepth: ReadDepth;
   tokenBudget: number;
   localDiscardedSummary: DiscardedFileSummary[];
+  securitySummary: SecuritySummary;
   repositoryMap?: RepositoryMap;
   preSelectionDeployment: string;
   preSelectionFilesSentCount: number;
@@ -52,6 +60,7 @@ export function createGenerationTrace(
     readDepth,
     tokenBudget,
     localDiscardedSummary: [],
+    securitySummary: { excludedPaths: [], redactedFiles: [] },
     preSelectionDeployment: '',
     preSelectionFilesSentCount: 0,
     selectionPrompt: '',
@@ -231,6 +240,28 @@ function formatTraceMarkdown(trace: GenerationTrace): string {
   }
   sections.push('');
   sections.push(`**Archivos enviados al nano: ${trace.preSelectionFilesSentCount}**`);
+  sections.push('');
+  sections.push('---');
+  sections.push('');
+
+  // Security: user-driven exclusions and redactions
+  const { excludedPaths, redactedFiles } = trace.securitySummary;
+  sections.push('## 🔒 Protección de datos sensibles');
+  sections.push('');
+  if (excludedPaths.length === 0 && redactedFiles.length === 0) {
+    sections.push('Ningún archivo excluido ni codificado por seguridad.');
+  } else {
+    sections.push(`Archivos excluidos (no enviados a ningún modelo): **${excludedPaths.length}**`);
+    for (const path of excludedPaths) {
+      sections.push(`- \`${path}\``);
+    }
+    sections.push('');
+    sections.push(`Archivos codificados (enviados con valores redactados): **${redactedFiles.length}**`);
+    for (const file of redactedFiles) {
+      const n = file.redactionCount;
+      sections.push(`- \`${file.path}\` — ${n} ${n === 1 ? 'valor codificado' : 'valores codificados'}`);
+    }
+  }
   sections.push('');
   sections.push('---');
   sections.push('');

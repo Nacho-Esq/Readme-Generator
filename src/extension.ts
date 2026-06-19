@@ -12,7 +12,7 @@ import {
 } from './readme/reviewModel';
 import { buildFileInventory, PRE_SELECTION_MAX_BYTES_PER_FILE, readAllCandidateFiles, readRawContent, scanRepository, splitByTokenBudget } from './scanner/fileScanner';
 import { analyzeRepository } from './scanner/repositoryAnalyzer';
-import { CandidateFile, DiscardedFileSummary, FileSelectionResult } from './scanner/types';
+import { CandidateFile, DiscardedFileSummary, FileSelectionResult, SelectedFile } from './scanner/types';
 import { TemplateRenderer } from './template/templateRenderer';
 import {
   buildFinalReadFileTrace,
@@ -117,6 +117,10 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
     }
     const excludedPaths = new Set(securityResult.excludePaths);
     const contentOverrides = new Map(securityResult.redactedFiles.map(f => [f.path, f.content]));
+    trace.securitySummary = {
+      excludedPaths: securityResult.excludePaths,
+      redactedFiles: securityResult.redactedFiles.map(f => ({ path: f.path, redactionCount: countRedactions(f.content) }))
+    };
     const sendableInventory = inventory.selectorInventory.filter(f => !excludedPaths.has(f.relativePath));
     if (sendableInventory.length === 0) {
       vscode.window.showErrorMessage('No quedan archivos para analizar después de excluir los marcados como confidenciales.');
@@ -186,10 +190,15 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
     }
 
     vscode.window.setStatusBarMessage(
-      `README Generator AI: leyendo ${filesToRead.length} archivos...`,
+      `README Generator AI: preparando ${filesToRead.length} archivos...`,
       6_000
     );
-    const selectedFiles = await readAllCandidateFiles(filesToRead, PRE_SELECTION_MAX_BYTES_PER_FILE, { overrides: contentOverrides, exclude: excludedPaths });
+    // Reutilizamos el contenido ya leído para el nano en lugar de releer del disco:
+    // evita una segunda pasada de I/O y garantiza que el modelo grande ve lo mismo que el nano.
+    const readByPath = new Map(allCandidateFiles.map((f) => [f.relativePath, f]));
+    const selectedFiles = filesToRead
+      .map((f) => readByPath.get(f.relativePath))
+      .filter((f): f is SelectedFile => f !== undefined);
     if (selectedFiles.length === 0) {
       vscode.window.showErrorMessage('No se pudieron leer los archivos seleccionados.');
       return;

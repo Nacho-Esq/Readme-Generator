@@ -70,7 +70,8 @@ function getNonce(): string {
 
 function buildHtml(files: PanelFileData[], inputCostPerToken: number | null): string {
   const nonce = getNonce();
-  const filesJson = JSON.stringify(files);
+  // Escapamos "<" para que ninguna ruta o razón del nano rompa el bloque <script>.
+  const filesJson = JSON.stringify(files).replace(/</g, '\\u003c');
   const costParam = inputCostPerToken === null ? 'null' : String(inputCostPerToken);
 
   return `<!DOCTYPE html>

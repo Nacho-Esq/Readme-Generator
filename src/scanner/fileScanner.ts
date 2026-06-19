@@ -11,6 +11,10 @@ export interface ReadOptions {
 
 export const PRE_SELECTION_MAX_BYTES_PER_FILE = 200_000;
 
+// Umbral único de tamaño de fichero candidato. Por encima se descarta en el escaneo;
+// es deliberadamente alto para no dejar fuera ficheros de código reales.
+export const MAX_FILE_BYTES = 2_000_000;
+
 const IGNORE_DIRECTORIES = new Set([
   'node_modules',
   '.git',
@@ -68,7 +72,7 @@ export async function scanRepository(workspaceFolder: vscode.WorkspaceFolder): P
 
     try {
       const stat = await vscode.workspace.fs.stat(uri);
-      if (stat.type === vscode.FileType.File && stat.size > 0 && stat.size < 2_000_000) {
+      if (stat.type === vscode.FileType.File && stat.size > 0 && stat.size <= MAX_FILE_BYTES) {
         candidates.push({ uri, relativePath, size: stat.size });
       }
     } catch {
@@ -84,7 +88,7 @@ export async function buildFileInventory(files: CandidateFile[]): Promise<FileIn
   const discarded = new Map<string, { count: number; examples: string[] }>();
 
   for (const file of files) {
-    const reason = discardReason(file.relativePath, file.size);
+    const reason = discardReason(file.relativePath);
     if (reason) {
       const entry = discarded.get(reason) ?? { count: 0, examples: [] };
       entry.count++;
@@ -172,7 +176,7 @@ export function estimateTokens(content: string): number {
   return Math.ceil(content.length / 4);
 }
 
-function discardReason(relativePath: string, size: number): string | undefined {
+function discardReason(relativePath: string): string | undefined {
   const lower = relativePath.toLowerCase();
   const basename = path.basename(lower);
 
@@ -186,8 +190,9 @@ function discardReason(relativePath: string, size: number): string | undefined {
     return 'lockfile';
   }
 
-  if (lower.includes('/dist/') || lower.includes('/build/') || basename.includes('.generated.')) {
-    return 'generated artifact';
+  // Evita reingerir la propia salida del generador en ejecuciones posteriores.
+  if (basename === 'readme.generated.md') {
+    return 'salida previa del generador';
   }
 
   if (lower.includes('/__snapshots__/') || lower.includes('/fixtures/') || lower.includes('/fixture/')) {
@@ -196,10 +201,6 @@ function discardReason(relativePath: string, size: number): string | undefined {
 
   if (basename.endsWith('.min.js') || basename.endsWith('.bundle.js')) {
     return 'minified or bundled asset';
-  }
-
-  if (size > 1_000_000) {
-    return 'oversized file';
   }
 
   return undefined;

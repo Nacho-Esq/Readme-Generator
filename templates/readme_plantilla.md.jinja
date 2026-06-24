@@ -1,6 +1,6 @@
 # {{ project_name }}
 
-{% if screenshot_path and screenshot_path != "RELLENAR POR USUARIO" and not renderOptions.omitFields.screenshot_path %}
+{% if screenshot_path != "RELLENAR POR USUARIO" and not renderOptions.omitFields.screenshot_path %}
 ![{{ project_name }}]({{ screenshot_path }})
 {% endif %}
 

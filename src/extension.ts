@@ -246,7 +246,8 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
       initialRenderOptions,
       async (data, renderOptions) => {
         const completedOptions = completeRenderOptions(data, renderOptions);
-        return renderer.render(templatePath, data, completedOptions);
+        const dataForRender = prepareDataForReview(data, completedOptions);
+        return renderer.render(templatePath, dataForRender, completedOptions);
       }
     );
     if (editResult.action !== 'save') {
@@ -254,7 +255,8 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
     }
 
     const finalRenderOptions = completeRenderOptions(editResult.data, editResult.renderOptions);
-    const finalMarkdown = await renderer.render(templatePath, editResult.data, finalRenderOptions);
+    const finalDataForRender = prepareDataForReview(editResult.data, finalRenderOptions);
+    const finalMarkdown = await renderer.render(templatePath, finalDataForRender, finalRenderOptions);
     const outputUri = vscode.Uri.file(path.join(workspaceFolder.uri.fsPath, 'README.generated.md'));
     await vscode.workspace.fs.writeFile(outputUri, new TextEncoder().encode(finalMarkdown));
 

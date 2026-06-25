@@ -96,8 +96,7 @@ export function isHumanField(path: string): boolean {
   return getTemplateSpec().byPath.get(path)?.role === 'H';
 }
 
-// Instrucciones por campo que se inyectan en el prompt del modelo: solo los
-// campos marcados como M (los H los rellena el humano y el modelo no los busca).
+// Instrucciones por campo que se inyectan en el prompt del modelo: solo los campos marcados como M
 export function buildFieldInstructionText(): string {
   const spec = getTemplateSpec();
   const seen = new Set<string>();

@@ -1,6 +1,6 @@
 # README Generator AI
 
-Extensión de VS Code en TypeScript para generar `README.generated.md` en español a partir de un repositorio local. Usa heurísticas baratas para seleccionar archivos relevantes, Azure OpenAI Responses API para extraer información estructurada y Nunjucks para renderizar una plantilla Jinja markdown.
+Extensión de VS Code en TypeScript para generar `README.generated.md` en español a partir de un repositorio local. Usa heurísticas baratas para seleccionar archivos relevantes, Azure OpenAI Responses API para extraer información estructurada y un renderer propio para aplicar la plantilla Markdown.
 
 ## Funcionalidad
 
@@ -9,8 +9,7 @@ Extensión de VS Code en TypeScript para generar `README.generated.md` en españ
 - Ignora `node_modules`, `.git`, `dist`, `build`, `venv` y `coverage`.
 - Prioriza `package.json`, `requirements.txt`, `pyproject.toml`, directorios de código y archivos relacionados con agentes, chatbots, prompts, tools, workflows, services, assistants y configuración.
 - Limita agresivamente archivos, bytes por archivo y bytes totales enviados al modelo.
-- Renderiza con Nunjucks manteniendo lógica Jinja compatible: bucles, condicionales y filtros.
-- Usa la plantilla README v1.0.2, con secciones de resumen, alcance, UX, arquitectura, conocimiento/prompts, seguridad, desarrollo local, despliegue, operación, documentación, roadmap y ownership.
+- Usa la plantilla `templates/readme.template.md`, un Markdown legible con 14 secciones (resumen, alcance, UX, arquitectura, conocimiento/prompts, seguridad, desarrollo local, despliegue, operación, documentación, roadmap y ownership). Cada campo lleva la instrucción para el modelo integrada en el mismo token, por lo que la plantilla sirve tanto de referencia humana como de fuente de prompts.
 - Muestra preview del markdown generado.
 - Muestra formulario editable antes de guardar, marcando los campos vacíos para completarlos manualmente.
 - Guarda el resultado como `README.generated.md`.
@@ -24,11 +23,11 @@ Configura estos ajustes en VS Code:
   "readmeGeneratorAi.apiKey": "<AZURE_OPENAI_API_KEY>",
   "readmeGeneratorAi.endpoint": "https://<resource>.openai.azure.com",
   "readmeGeneratorAi.deployment": "test-plantillas-gpt-5.2-codex",
-  "readmeGeneratorAi.templatePath": "C:\\\\ruta\\\\a\\\\readme_plantilla.md.jinja"
+  "readmeGeneratorAi.templatePath": "C:\\\\ruta\\\\a\\\\readme.template.md"
 }
 ```
 
-`templatePath` es opcional. Si está vacío, la extensión usa `templates/readme_plantilla.md.jinja` incluido en el paquete.
+`templatePath` es opcional. Si está vacío, la extensión usa `templates/readme.template.md` incluido en el paquete. Si usas una plantilla personalizada, respeta el formato de tokens `[[ ruta | M/H(?) | tipo? | instrucción ]]`.
 
 ## Desarrollo local
 

@@ -1,6 +1,6 @@
 import { RepositoryMap, SelectedFile } from '../scanner/types';
 import { ReadmeData } from '../types';
-import { buildFieldInstructionText, getFieldInstruction } from './fieldInstructions';
+import { buildFieldInstructionText, getFieldInstruction, isHumanField } from '../template/templateSpec';
 
 export interface UnreadFileInfo {
   path: string;
@@ -135,7 +135,7 @@ export function buildExtractionPrompt(
   return [
     'Eres un asistente experto en documentación técnica de proyectos de software, especialmente chatbots, agentes, copilotos y asistentes IA.',
     'Analiza solamente los archivos proporcionados de un repositorio local. No inventes datos.',
-    'El README final se generará en español con una plantilla Jinja/Nunjucks.',
+    'El README final se generará en español a partir de una plantilla Markdown.',
     '',
     'Objetivo: extraer valores estructurados para todos los campos de la plantilla README v1.0.2.',
     'Reglas estrictas:',
@@ -243,13 +243,18 @@ export function getExtractionJsonSchema(): object {
     additionalProperties: false,
     required: ['data', 'warnings'],
     properties: {
-      data: schemaFromValue(emptyReadmeData, '', stringArray, envVariableArray),
+      data: schemaFromValue(emptyReadmeData, '', stringArray, envVariableArray) ?? {},
       warnings: stringArray
     }
   };
 }
 
-function schemaFromValue(value: unknown, path: string, stringArray: object, envVariableArray: object): object {
+function schemaFromValue(value: unknown, path: string, stringArray: object, envVariableArray: object): object | undefined {
+  // Los campos marcados como H en la plantilla los rellena el humano: el modelo
+  // no debe devolverlos, así que se excluyen del JSON Schema.
+  if (path && isHumanField(path)) {
+    return undefined;
+  }
   const description = getFieldInstruction(path);
   if (typeof value === 'string') {
     return withDescription({ type: 'string' }, description);
@@ -258,17 +263,14 @@ function schemaFromValue(value: unknown, path: string, stringArray: object, envV
     return withDescription(path === 'local_development.env_variables' ? envVariableArray : stringArray, description);
   }
   if (value && typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>);
+    const entries = Object.entries(value as Record<string, unknown>)
+      .map(([key, child]) => [key, schemaFromValue(child, path ? `${path}.${key}` : key, stringArray, envVariableArray)] as const)
+      .filter((entry): entry is [string, object] => entry[1] !== undefined);
     return withDescription({
       type: 'object',
       additionalProperties: false,
       required: entries.map(([key]) => key),
-      properties: Object.fromEntries(
-        entries.map(([key, child]) => [
-          key,
-          schemaFromValue(child, path ? `${path}.${key}` : key, stringArray, envVariableArray)
-        ])
-      )
+      properties: Object.fromEntries(entries)
     }, description);
   }
   return withDescription({ type: 'string' }, description);

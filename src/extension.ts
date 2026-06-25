@@ -1,3 +1,4 @@
+import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { AzureResponsesClient } from './azure/azureResponsesClient';
@@ -14,6 +15,7 @@ import { buildFileInventory, PRE_SELECTION_MAX_BYTES_PER_FILE, readAllCandidateF
 import { analyzeRepository } from './scanner/repositoryAnalyzer';
 import { CandidateFile, DiscardedFileSummary, FileSelectionResult, SelectedFile } from './scanner/types';
 import { TemplateRenderer } from './template/templateRenderer';
+import { initTemplateSpec } from './template/templateSpec';
 import {
   buildFinalReadFileTrace,
   createGenerationTrace,
@@ -216,6 +218,10 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
         estimatedTokens: Math.ceil(f.size / 4)
       }));
 
+    const renderer = new TemplateRenderer(context.extensionUri);
+    const templatePath = await renderer.resolveTemplatePath(settings.templatePath);
+    initTemplateSpec(await fs.readFile(templatePath, 'utf8'));
+
     vscode.window.setStatusBarMessage(`README Generator AI: analizando ${selectedFiles.length} archivos...`, 4_000);
     const prompt = buildExtractionPrompt(selectedFiles, workspaceFolder.name, repositoryMap, {
       nanoReasonsByPath,
@@ -230,8 +236,6 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
     trace.warnings = finalWarnings;
     await saveTraceIfEnabled(workspaceFolder, settings.debugTrace, trace);
 
-    const renderer = new TemplateRenderer(context.extensionUri);
-    const templatePath = await renderer.resolveTemplatePath(settings.templatePath);
     const review = analyzeReadmeData(finalReadmeData);
     const initialRenderOptions = completeRenderOptions(finalReadmeData, createDefaultRenderOptions());
     const initialReviewData = prepareDataForReview(finalReadmeData, initialRenderOptions);

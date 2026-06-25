@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { FieldDefinition, FORM_SECTIONS, fieldKey } from '../readme/fieldMetadata';
-import { getFieldInstruction } from '../prompt/fieldInstructions';
+import { getFieldInstruction } from '../template/templateSpec';
 import { FILL_PLACEHOLDER, isPlaceholderValue, RenderOptions, ReviewModel } from '../readme/reviewModel';
 import { ReadmeData } from '../types';
 

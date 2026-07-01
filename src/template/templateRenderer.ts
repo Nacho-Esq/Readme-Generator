@@ -82,7 +82,9 @@ function renderLine(line: string, ctx: RenderContext): string[] {
     const before = line.slice(0, match.index ?? 0);
     const after = line.slice((match.index ?? 0) + match[0].length);
 
-    if (field.optional && ctx.renderOptions.omitFields[fieldKey(field.path)]) {
+    // Cualquier campo puede descartarse desde el panel; si el usuario lo descartó,
+    // no se renderiza (se elimina su línea entera, incluida la etiqueta en negrita).
+    if (ctx.renderOptions.omitFields[fieldKey(field.path)]) {
       return [];
     }
 

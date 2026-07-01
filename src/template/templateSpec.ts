@@ -20,7 +20,6 @@ export type PanelKind = 'text' | 'list' | 'env';
 export interface ParsedToken {
   path: string;
   role: FieldRole;
-  optional: boolean;
   type?: RenderType;
   instruction: string;
 }
@@ -64,10 +63,10 @@ const SECTION_NUMBER_PREFIX = /^\d+\.\s*/;
 export function parseToken(rawContent: string): ParsedToken {
   const parts = rawContent.split('|').map((part) => part.trim());
   const path = parts[0] ?? '';
-  const roleRaw = (parts[1] ?? 'M').toUpperCase();
-  const optional = roleRaw.endsWith('?');
-  const roleLetter = roleRaw.replace('?', '');
-  const role: FieldRole = roleLetter === 'H' ? 'H' : 'M';
+  // Solo hay dos roles: M (lo busca el modelo) y H (lo rellena el humano). No
+  // existe la noción de campo "opcional": cualquier campo M puede quedar vacío
+  // para que lo complete el usuario, y cualquier campo puede descartarse.
+  const role: FieldRole = (parts[1] ?? 'M').toUpperCase().startsWith('H') ? 'H' : 'M';
 
   const rest = parts.slice(2);
   let type: RenderType | undefined;
@@ -77,7 +76,7 @@ export function parseToken(rawContent: string): ParsedToken {
   }
   const instruction = rest.join(' | ').trim();
 
-  return { path, role, optional, type, instruction };
+  return { path, role, type, instruction };
 }
 
 export function parseTemplate(text: string): TemplateSpec {

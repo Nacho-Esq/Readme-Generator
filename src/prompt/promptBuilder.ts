@@ -49,7 +49,7 @@ export function buildExtractionPrompt(
   }
 
   return [
-    'Eres un asistente experto en documentación técnica de proyectos de software, especialmente chatbots, agentes, copilotos y asistentes IA.',
+    'Eres un asistente experto en documentación técnica de proyectos de software de cualquier tipo (chatbots, agentes IA, APIs, librerías, CLIs, extensiones, aplicaciones web, servicios internos, etc.).',
     'Analiza solamente los archivos proporcionados de un repositorio local. No inventes datos.',
     'El README final se generará en español a partir de una plantilla Markdown.',
     '',
@@ -57,8 +57,9 @@ export function buildExtractionPrompt(
     'Reglas estrictas:',
     '- Devuelve solo JSON válido.',
     '- Escribe todos los textos en español.',
-    '- Si falta información, deja strings vacíos o arrays vacíos.',
-    '- No rellenes contactos, seguridad, despliegue, observabilidad, documentación, roadmap o proyectos relacionados si no aparecen evidencias.',
+    '- Rellena un campo SOLO si su valor se puede afirmar con alta certeza a partir de los archivos. Ante cualquier duda, ambigüedad o falta de evidencia, deja el campo vacío (string vacío o array vacío) para que lo complete el usuario. Esto aplica a TODOS los campos por igual: es siempre preferible dejar un campo vacío que rellenarlo con información inventada, supuesta o dudosa.',
+    '- En particular, no rellenes contactos, seguridad, despliegue, observabilidad, documentación, roadmap o proyectos relacionados si no aparecen evidencias claras.',
+    '- Los campos conversacionales de "Experiencia de usuario" (preguntas esperadas, adjuntos, errores/fallback, handoff a humano, historial/memoria) y toda la sección "Conocimiento y prompts" (fuentes, RAG, prompts/guardrails, contenido no permitido) solo aplican si el proyecto tiene un componente conversacional, de agente IA, o basado en modelos de lenguaje/RAG. Si no hay evidencia de ello, déjalos vacíos.',
     '- Usa package.json, requirements.txt, pyproject.toml y scripts para requisitos, instalación, ejecución, checks y pruebas.',
     '- Usa config, .env.example, Docker, Kubernetes, IaC, CI/CD, docs markdown y código para buscar despliegue, entornos, seguridad, observabilidad y dependencias externas.',
     '- Usa archivos de prompts, agentes, workflows, RAG, tools, servicios y comentarios de código para inferir UX, arquitectura, fuentes de conocimiento y guardrails.',

@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
-import { FieldDefinition, FORM_SECTIONS, fieldKey } from '../readme/fieldMetadata';
-import { getFieldInstruction } from '../template/templateSpec';
+import { FieldSpec, fieldKey, getFieldInstruction, getFormSections, PanelKind } from '../template/templateSpec';
 import { FILL_PLACEHOLDER, isPlaceholderValue, RenderOptions, ReviewModel } from '../readme/reviewModel';
 import { ReadmeData } from '../types';
 
@@ -9,7 +8,8 @@ type EditResult =
   | { action: 'cancel' };
 
 type RenderPreview = (data: ReadmeData, renderOptions: RenderOptions) => Promise<string>;
-type PendingField = FieldDefinition & { key: string; sectionTitle: string };
+// `kind` (= panelKind) se incluye explícitamente porque el JS del webview lo lee.
+type PendingField = FieldSpec & { key: string; sectionTitle: string; kind: PanelKind };
 
 export class EditFormPanel {
   static show(
@@ -287,10 +287,10 @@ function getEditHtml(
 
 function getPendingFields(review: ReviewModel): PendingField[] {
   const missingPaths = new Set(review.missing.map((field) => field.path));
-  return FORM_SECTIONS
+  return getFormSections()
     .flatMap((section) => section.fields.map((field) => ({ ...field, sectionTitle: section.title })))
     .filter((field) => missingPaths.has(field.path))
-    .map((field) => ({ ...field, key: fieldKey(field.path) }));
+    .map((field) => ({ ...field, key: fieldKey(field.path), kind: field.panelKind }));
 }
 
 function fieldEditor(field: PendingField, data: ReadmeData): string {
@@ -298,7 +298,7 @@ function fieldEditor(field: PendingField, data: ReadmeData): string {
   const value = formatValue(rawValue, field);
   const isMissing = value.trim() === '' || value.split('\n').some((line) => isPlaceholderValue(line) || line.includes(FILL_PLACEHOLDER));
   const displayValue = isMissing ? '' : value;
-  const hint = field.hint || (field.kind === 'list' ? 'Un valor por linea' : '');
+  const hint = hintForKind(field.kind);
   const key = fieldKey(field.path);
   const classes = isMissing ? 'missing' : '';
   const discardButton = '<button type="button" class="danger" data-action="discard">Descartar campo</button>';
@@ -342,7 +342,14 @@ function getPathValue(value: unknown, path: string): unknown {
   }, value);
 }
 
-function formatValue(value: unknown, field: FieldDefinition): string {
+function hintForKind(kind: PanelKind): string {
+  if (kind === 'env') {
+    return 'Una variable por línea: NOMBRE: descripción';
+  }
+  return kind === 'list' ? 'Un valor por linea' : '';
+}
+
+function formatValue(value: unknown, field: PendingField): string {
   if (field.kind === 'env' && Array.isArray(value)) {
     return value
       .map((item) => {

@@ -3,8 +3,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { ReadmeData } from '../types';
 import { createDefaultRenderOptions, FILL_PLACEHOLDER, RenderOptions } from '../readme/reviewModel';
-import { fieldKey } from '../readme/fieldMetadata';
-import { FieldSpec, getTemplateSpec, parseToken, RenderType, TOKEN_REGEX } from './templateSpec';
+import { fieldKey, FieldSpec, getTemplateSpec, parseToken, RenderType, TOKEN_REGEX } from './templateSpec';
 
 interface RenderContext {
   data: ReadmeData;
@@ -17,6 +16,12 @@ const COMMENT_REGEX = /<!--[\s\S]*?-->/g;
 const BLOCK_TYPES = new Set<RenderType>(['list', 'env', 'code', 'raw']);
 
 export class TemplateRenderer {
+  // El contenido de la plantilla no cambia durante una generación, pero render()
+  // se invoca en cada pulsación del preview. Cacheamos el texto por ruta para no
+  // releer del disco en cada keystroke. Una instancia nueva por generación
+  // garantiza que un cambio en la plantilla entre ejecuciones se recoja.
+  private readonly templateCache = new Map<string, string>();
+
   constructor(private readonly extensionUri: vscode.Uri) {}
 
   async resolveTemplatePath(configuredPath: string): Promise<string> {
@@ -27,8 +32,18 @@ export class TemplateRenderer {
   }
 
   async render(templatePath: string, data: ReadmeData, renderOptions: RenderOptions = createDefaultRenderOptions()): Promise<string> {
-    const template = await fs.readFile(templatePath, 'utf8');
+    const template = await this.loadTemplate(templatePath);
     return renderTemplate(template, data, renderOptions);
+  }
+
+  private async loadTemplate(templatePath: string): Promise<string> {
+    const cached = this.templateCache.get(templatePath);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const template = await fs.readFile(templatePath, 'utf8');
+    this.templateCache.set(templatePath, template);
+    return template;
   }
 }
 

@@ -1,7 +1,7 @@
 {
   "name": "readme-generator-ai",
   "displayName": "README Generator AI",
-  "description": "Genera README en español a partir de un repositorio local usando Azure OpenAI Responses API y una plantilla Jinja/Nunjucks.",
+  "description": "Genera README en español a partir de un repositorio local usando Azure OpenAI Responses API y una plantilla Markdown con tokens propios.",
   "version": "0.1.0",
   "publisher": "nttdata",
   "license": "MIT",
@@ -77,7 +77,7 @@
         "readmeGeneratorAi.templatePath": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Optional absolute path to the external Jinja markdown template. If empty, the extension uses its bundled template.",
+          "markdownDescription": "Optional absolute path to an external Markdown template (token format `[[ ruta | M/H | tipo | instrucción ]]`). If empty, the extension uses its bundled template.",
           "scope": "resource"
         },
         "readmeGeneratorAi.readDepth": {
@@ -120,12 +120,8 @@
     "package": "vsce package",
     "publish": "vsce publish"
   },
-  "dependencies": {
-    "nunjucks": "^3.2.4"
-  },
   "devDependencies": {
     "@types/node": "^20.14.10",
-    "@types/nunjucks": "^3.2.6",
     "@types/vscode": "^1.92.0",
     "@vscode/vsce": "^2.31.1",
     "typescript": "^5.5.4"

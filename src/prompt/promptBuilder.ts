@@ -1,6 +1,5 @@
 import { RepositoryMap, SelectedFile } from '../scanner/types';
-import { ReadmeData } from '../types';
-import { buildFieldInstructionText, getFieldInstruction, isHumanField } from '../template/templateSpec';
+import { buildDataJsonSchema, buildEmptyData, buildFieldInstructionText } from '../template/templateSpec';
 
 export interface UnreadFileInfo {
   path: string;
@@ -12,89 +11,6 @@ export interface NanoContext {
   nanoReasonsByPath: Map<string, string>;
   unreadFiles: UnreadFileInfo[];
 }
-
-export const emptyReadmeData: ReadmeData = {
-  project_name: '',
-  screenshot_path: '',
-  summary: {
-    what_is: '',
-    project_type: '',
-    purpose: '',
-    target_users: [],
-    status: '',
-    success_criteria: ''
-  },
-  scope: {
-    includes: [],
-    excludes: [],
-    known_limitations: []
-  },
-  usage: {
-    channels: [],
-    languages: [],
-    contexts: []
-  },
-  ux: {
-    start_flow: '',
-    expected_questions: [],
-    attachments_support: '',
-    fallback_error_handling: '',
-    human_handoff: '',
-    history_session_memory: ''
-  },
-  architecture: {
-    logical_flow: '',
-    components: [],
-    external_dependencies: []
-  },
-  knowledge_prompts: {
-    sources: [],
-    rag_summary: '',
-    prompt_guardrails_location: '',
-    forbidden_content_handling: ''
-  },
-  security_privacy: {
-    processed_data: [],
-    retention_storage: '',
-    access_auth: '',
-    anonymization_secrets: '',
-    compliance_notes: ''
-  },
-  local_development: {
-    requirements: [],
-    env_variables: [],
-    resources: [],
-    install_run_commands: [],
-    validation_checks: [],
-    testing_strategy: ''
-  },
-  deployment: {
-    environments: [],
-    process: '',
-    environment_differences: ''
-  },
-  operations: {
-    logs: '',
-    traces: '',
-    metrics: '',
-    alerts_runbooks: '',
-    incident_process: ''
-  },
-  documentation_links: {
-    coordination_tools: [],
-    repos_pipelines: [],
-    environments_resources: [],
-    manuals_docs: []
-  },
-  roadmap: [],
-  contacts: {
-    product_owner: '',
-    technical_owner: '',
-    responsible_team: '',
-    support_operations: ''
-  },
-  related_projects: []
-};
 
 export function buildExtractionPrompt(
   files: SelectedFile[],
@@ -137,7 +53,7 @@ export function buildExtractionPrompt(
     'Analiza solamente los archivos proporcionados de un repositorio local. No inventes datos.',
     'El README final se generará en español a partir de una plantilla Markdown.',
     '',
-    'Objetivo: extraer valores estructurados para todos los campos de la plantilla README v1.0.2.',
+    'Objetivo: extraer valores estructurados para todos los campos de la plantilla README.',
     'Reglas estrictas:',
     '- Devuelve solo JSON válido.',
     '- Escribe todos los textos en español.',
@@ -158,7 +74,7 @@ export function buildExtractionPrompt(
     formatRepositoryMap(repositoryMap, files.length),
     '',
     'Formato exacto de salida:',
-    JSON.stringify({ data: emptyReadmeData, warnings: ['campo pendiente de completar manualmente'] }, null, 2),
+    JSON.stringify({ data: buildEmptyData({ excludeHuman: true }), warnings: ['campo pendiente de completar manualmente'] }, null, 2),
     ...unreadBlock,
     '',
     'Archivos seleccionados:',
@@ -222,60 +138,13 @@ function formatRepositoryMap(repositoryMap: RepositoryMap, selectedFileCount: nu
 }
 
 export function getExtractionJsonSchema(): object {
-  const stringArray = { type: 'array', items: { type: 'string' } };
-  const envVariableArray = {
-    type: 'array',
-    items: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['name', 'description'],
-      properties: {
-        name: withDescription({ type: 'string' }, getFieldInstruction('local_development.env_variables.name')),
-        description: withDescription(
-          { type: 'string' },
-          getFieldInstruction('local_development.env_variables.description')
-        )
-      }
-    }
-  };
   return {
     type: 'object',
     additionalProperties: false,
     required: ['data', 'warnings'],
     properties: {
-      data: schemaFromValue(emptyReadmeData, '', stringArray, envVariableArray) ?? {},
-      warnings: stringArray
+      data: buildDataJsonSchema(),
+      warnings: { type: 'array', items: { type: 'string' } }
     }
   };
-}
-
-function schemaFromValue(value: unknown, path: string, stringArray: object, envVariableArray: object): object | undefined {
-  // Los campos marcados como H en la plantilla los rellena el humano: el modelo
-  // no debe devolverlos, así que se excluyen del JSON Schema.
-  if (path && isHumanField(path)) {
-    return undefined;
-  }
-  const description = getFieldInstruction(path);
-  if (typeof value === 'string') {
-    return withDescription({ type: 'string' }, description);
-  }
-  if (Array.isArray(value)) {
-    return withDescription(path === 'local_development.env_variables' ? envVariableArray : stringArray, description);
-  }
-  if (value && typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .map(([key, child]) => [key, schemaFromValue(child, path ? `${path}.${key}` : key, stringArray, envVariableArray)] as const)
-      .filter((entry): entry is [string, object] => entry[1] !== undefined);
-    return withDescription({
-      type: 'object',
-      additionalProperties: false,
-      required: entries.map(([key]) => key),
-      properties: Object.fromEntries(entries)
-    }, description);
-  }
-  return withDescription({ type: 'string' }, description);
-}
-
-function withDescription(schema: object, description: string | undefined): object {
-  return description ? { ...schema, description } : schema;
 }

@@ -1,5 +1,5 @@
 import { ReadmeData } from '../types';
-import { ALL_FIELDS, FieldDefinition, fieldKey } from './fieldMetadata';
+import { FieldSpec, fieldKey, getAllFields } from '../template/templateSpec';
 
 export const FILL_PLACEHOLDER = 'RELLENAR POR USUARIO';
 
@@ -24,13 +24,13 @@ export function createDefaultRenderOptions(): RenderOptions {
 }
 
 export function analyzeReadmeData(data: ReadmeData): ReviewModel {
-  const missing = ALL_FIELDS
+  const missing = getAllFields()
     .filter((field) => isMissingValue(getPathValue(data, field.path), field))
     .map((field) => ({
       path: field.path,
       key: fieldKey(field.path),
       label: field.label,
-      templateSection: field.templateSection
+      templateSection: field.section
     }));
 
   return { missing };
@@ -38,7 +38,7 @@ export function analyzeReadmeData(data: ReadmeData): ReviewModel {
 
 export function prepareDataForReview(data: ReadmeData, renderOptions: RenderOptions): ReadmeData {
   const next = JSON.parse(JSON.stringify(data)) as ReadmeData;
-  for (const field of ALL_FIELDS) {
+  for (const field of getAllFields()) {
     const key = fieldKey(field.path);
     if (renderOptions.omitFields[key]) {
       continue;
@@ -52,10 +52,15 @@ export function prepareDataForReview(data: ReadmeData, renderOptions: RenderOpti
 
 export function completeRenderOptions(data: ReadmeData, renderOptions: RenderOptions): RenderOptions {
   const omitSections: Record<string, boolean> = {};
-  const sections = new Set(ALL_FIELDS.map((field) => field.templateSection));
+  const allFields = getAllFields();
+  // Solo las secciones con marcador <!--section:KEY--> son omitibles; se agrupan
+  // por esa clave para que coincida con lo que consume el render.
+  const sectionKeys = new Set(
+    allFields.map((field) => field.sectionKey).filter((key): key is string => Boolean(key))
+  );
 
-  for (const section of sections) {
-    const sectionFields = ALL_FIELDS.filter((field) => field.templateSection === section);
+  for (const sectionKey of sectionKeys) {
+    const sectionFields = allFields.filter((field) => field.sectionKey === sectionKey);
 
     const hasVisibleData = sectionFields.some((field) => {
       const key = fieldKey(field.path);
@@ -66,7 +71,7 @@ export function completeRenderOptions(data: ReadmeData, renderOptions: RenderOpt
       return renderOptions.omitFields[key] || !isMissingValue(getPathValue(data, field.path), field);
     });
 
-    omitSections[section] = !hasVisibleData && allMissingAreOmitted;
+    omitSections[sectionKey] = !hasVisibleData && allMissingAreOmitted;
   }
 
   return {
@@ -79,18 +84,18 @@ export function isPlaceholderValue(value: string): boolean {
   return value.trim() === FILL_PLACEHOLDER || value.trim() === `**${FILL_PLACEHOLDER}**`;
 }
 
-function placeholderValue(field: FieldDefinition): unknown {
-  if (field.kind === 'list') {
+function placeholderValue(field: FieldSpec): unknown {
+  if (field.panelKind === 'list') {
     return [FILL_PLACEHOLDER];
   }
-  if (field.kind === 'env') {
+  if (field.panelKind === 'env') {
     return [{ name: FILL_PLACEHOLDER, description: FILL_PLACEHOLDER }];
   }
   return FILL_PLACEHOLDER;
 }
 
-function isMissingValue(value: unknown, field: FieldDefinition): boolean {
-  if (field.kind === 'env') {
+function isMissingValue(value: unknown, field: FieldSpec): boolean {
+  if (field.panelKind === 'env') {
     return !Array.isArray(value) || value.length === 0 || value.every((item) => {
       if (!item || typeof item !== 'object') {
         return true;

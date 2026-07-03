@@ -8,8 +8,7 @@
 
 - **Qué es**: [[ summary.what_is | M | Resumen claro (2-4 frases) de qué hace el proyecto, cuáles son sus objetivos y qué problema resuelve.]]
 - **Tipo**: [[ summary.project_type | M | Clasifica el proyecto en una o más categorías, según evidencia objetiva (entry point, manifest, dependencias, forma de despliegue). Indica aquellas que coincidan: "chatbot" (interfaz conversacional que responde mensajes turno a turno; NO planifica ni ejecuta acciones externas por sí mismo); "agente IA" (además de conversar, planifica y ejecuta acciones de forma autónoma llamando herramientas/funciones/APIs para completar tareas); "extensión/plugin" (se instala dentro de una aplicación anfitriona y depende de su runtime); "API/servicio backend" (expone endpoints REST/GraphQL/gRPC/webhooks consumidos por otros programas, sin interfaz de usuario propia); "aplicación frontend/web" (interfaz visual consumida directamente por personas en navegador u otro cliente gráfico); "librería/SDK" (paquete pensado para ser importado por otro código, no se ejecuta de forma independiente); "CLI" (herramienta invocada por línea de comandos); "servicio interno/batch" (proceso automatizado sin interacción directa de usuario final, p. ej. cron, workers, pipelines de datos); u "otro: <breve descripción>" solo si ninguna categoría anterior encaja. Si el proyecto combina varias capas, explícalo y menciona todas, recalcando cuál es con la que interactúa el usuario final]]
-- **Usuarios**: [[ summary.target_users | M | csv | Perfiles que usarán la solución. ]]
-- **Estado**: [[ summary.status | H | Estado del proyecto si hay evidencia: prototipo, desarrollo, producción, mantenimiento, archivado u otro. ]]
+- **Estado**: [[ summary.status | H | Estado del proyecto: prototipo, desarrollo, producción, mantenimiento, archivado u otro. ]]
 - **Objetivo y éxito**: [[ summary.success_criteria | M | Criterio de éxito u objetivo medible del proyecto, solo si hay evidencia. ]]
 
 ---
@@ -24,8 +23,8 @@
 
 ## 3. Usuarios y uso previsto
 
-- **Usuarios objetivo**: [[ summary.target_users | M | csv | Perfiles que usarán la solución. ]]
-- **Canales**: [[ usage.channels | M | csv | Interfaces o canales por los que se accede al proyecto (ej. web, Teams/Slack, API HTTP, extensión de IDE, CLI, backend interno). Incluye solo los que tengan evidencia clara en código o configuración. ]]
+- **Usuarios objetivo**: [[ summary.target_users | H | csv | Perfiles que usarán la solución. ]]
+- **Canales**: [[ usage.channels | M | csv | Interfaces o canales por los que se accede al proyecto (ej. web, Teams/Slack, API HTTP, extensión de IDE, CLI, backend interno).]]
 - **Idiomas**: [[ usage.languages | M | csv | Idiomas soportados. Incluye solo los que aparezcan en código, configuración o documentación. ]]
 - **Contexto de uso**: [[ usage.contexts | H | list | Escenarios reales en los que se espera usar la solución. ]]
 
@@ -35,11 +34,11 @@
 ## 4. Experiencia de usuario
 
 - **Cómo se inicia**: [[ ux.start_flow | M | Cómo empieza la interacción desde la perspectiva de quien lo usa o del sistema que lo invoca: primer comando, petición HTTP, apertura de la extensión, primer mensaje de chat, importación de la librería, etc., según el tipo de interfaz. ]]
-- **Qué preguntas se esperan**: [[ ux.expected_questions | M | list | Ejemplos de preguntas, comandos, peticiones o casos de uso típicos que la solución debe resolver. Aplica a interfaces conversacionales, APIs, CLIs u otras interfaces con casos de uso concretos; si no hay evidencia clara, deja vacío. ]]
-- **Adjuntos** (si aplica): [[ ux.attachments_support | M | Si acepta archivos, imágenes u otros adjuntos, y cómo los usa. Aplica solo si el proyecto tiene una interfaz conversacional o de agente; si no, deja vacío. ]]
-- **Errores y fallback**: [[ ux.fallback_error_handling | M | Cómo responde ante errores, excepciones, entradas inválidas o casos no cubiertos. Deja vacío si no hay evidencia documentada o implementada. ]]
-- **Handoff a humano**: [[ ux.human_handoff | M | Si existe escalado a una persona, equipo, canal de soporte o proceso manual. Aplica solo si el proyecto tiene una interfaz conversacional o de agente; si no, deja vacío. ]]
-- **Historial/memoria**: [[ ux.history_session_memory | M | Si mantiene contexto, memoria, historial de sesión o conversaciones previas. Aplica solo si el proyecto tiene una interfaz conversacional o de agente; si no, deja vacío. ]]
+- **Qué preguntas se esperan**: [[ ux.expected_questions | M | list | Ejemplos de preguntas, comandos, peticiones o casos de uso típicos que la solución debe resolver. Aplica solo a interfaces conversacionales, APIs, CLIs u otras interfaces con casos de uso concretos ]]
+- **Adjuntos**: [[ ux.attachments_support | M | Si acepta archivos, imágenes u otros adjuntos, y cómo los usa. Aplica solo si el proyecto tiene una interfaz conversacional o de agente; si no, deja vacío. ]]
+- **Errores y fallback**: [[ ux.fallback_error_handling | M | Cómo responde ante errores, excepciones, entradas inválidas o casos no cubiertos.  ]]
+- **Handoff a humano**: [[ ux.human_handoff | H | Si existe escalado a una persona, equipo, canal de soporte o proceso manual. Aplica solo si el proyecto tiene una interfaz conversacional o de agente.]]
+- **Historial/memoria**: [[ ux.history_session_memory | M | Si mantiene contexto, memoria, historial de sesión o conversaciones previas. Aplica solo si el proyecto tiene una interfaz conversacional o de agente. ]]
 
 ---
 <!--/section-->
@@ -121,7 +120,7 @@
 <!--section:roadmap-->
 ## 12. Roadmap / mejoras
 
-[[ roadmap | M | list | Mejoras futuras, TODOs o elementos de roadmap mencionados explícitamente. ]]
+[[ roadmap | H | list | Mejoras futuras, TODOs o elementos de roadmap mencionados explícitamente. ]]
 
 ---
 <!--/section-->
@@ -129,10 +128,10 @@
 <!--section:contacts-->
 ## 13. Contactos y ownership
 
-- **Product owner**: [[ contacts.product_owner | M | Product owner. Rellena solo si aparece explícitamente. ]]
-- **Responsable técnico**: [[ contacts.technical_owner | M | Responsable técnico. Rellena solo si hay evidencia clara. ]]
-- **Equipo responsable**: [[ contacts.responsible_team | M | Equipo propietario o responsable si aparece en documentación o metadatos. ]]
-- **Soporte/Operación (si aplica)**: [[ contacts.support_operations | M | Canal o equipo de soporte/operación solo si está documentado. ]]
+- **Product owner**: [[ contacts.product_owner | H | Product owner. Rellena solo si aparece explícitamente. ]]
+- **Responsable técnico**: [[ contacts.technical_owner | H | Responsable técnico. Rellena solo si hay evidencia clara. ]]
+- **Equipo responsable**: [[ contacts.responsible_team | H | Equipo propietario o responsable si aparece en documentación o metadatos. ]]
+- **Soporte/Operación (si aplica)**: [[ contacts.support_operations | H | Canal o equipo de soporte/operación solo si está documentado. ]]
 
 ---
 <!--/section-->
@@ -140,5 +139,5 @@
 <!--section:related_projects-->
 ## 14. Proyectos relacionados
 
-[[ related_projects | M | list | Proyectos relacionados mencionados explícitamente en el repositorio. ]]
+[[ related_projects | H | list | Proyectos relacionados mencionados explícitamente en el repositorio. ]]
 <!--/section-->

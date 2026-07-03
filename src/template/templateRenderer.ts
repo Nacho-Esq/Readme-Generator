@@ -70,7 +70,27 @@ export function renderTemplate(template: string, data: ReadmeData, renderOptions
   }
 
   const body = outputLines.join('\n');
-  return collapseBlankLines(body).replace(/^\n+/, '').trimEnd() + '\n';
+  const cleaned = collapseBlankLines(body).replace(/^\n+/, '').trimEnd() + '\n';
+  return renumberSections(cleaned);
+}
+
+// Renumera los encabezados de sección (`## N. Título`) de forma secuencial sobre el
+// resultado ya renderizado. Las secciones omitibles (`<!--section:clave-->`) pueden
+// haberse eliminado antes; sin esto la numeración escrita en la plantilla dejaría
+// huecos (p. ej. 7, 9, 10 si desaparece la 8). Reasigna 1..N a las que sobreviven.
+function renumberSections(markdown: string): string {
+  let counter = 0;
+  return markdown
+    .split('\n')
+    .map((line) => {
+      const match = line.match(/^##\s+\d+\.\s+(.*)$/);
+      if (!match) {
+        return line;
+      }
+      counter += 1;
+      return `## ${counter}. ${match[1]}`;
+    })
+    .join('\n');
 }
 
 function renderLine(line: string, ctx: RenderContext): string[] {

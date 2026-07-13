@@ -89,6 +89,30 @@ describe('redactSecrets: escáner de tokens sueltos en texto libre', () => {
   });
 });
 
+describe('redactSecrets: finales de línea no-Unix', () => {
+  it('redacta correctamente un .env con CRLF (Windows), no solo con LF', () => {
+    const content = ['API_KEY=sk-abc123456789', 'DATA_SERVICE_MODE=LOCAL', 'PORT=3000'].join('\r\n');
+    const result = redactSecrets(content, '.env');
+    expect(result).toBe(['API_KEY=[REDACTADO]', 'DATA_SERVICE_MODE=[REDACTADO]', 'PORT=[REDACTADO]'].join('\n'));
+  });
+
+  it('no deja un `\\r` colgante que rompa la redacción y desemboque en el escáner de tokens', () => {
+    // Antes del fix, esta línea con CRLF caía al escáner de tokens y perdía el nombre
+    // de la clave: "EVA_AUTH_REQUEST_CLIENT_SECRET=a1b2c3d4e5f6g7h8i9j0\r" -> "[REDACTADO]\r"
+    const content = 'EVA_AUTH_REQUEST_CLIENT_SECRET=a1b2c3d4e5f6g7h8i9j0\r\nEVA_AUTH_REQUEST_CLIENT_ID=iberia-qa\r\n';
+    const result = redactSecrets(content, '.env');
+    expect(result).toContain('EVA_AUTH_REQUEST_CLIENT_SECRET=[REDACTADO]');
+    expect(result).toContain('EVA_AUTH_REQUEST_CLIENT_ID=[REDACTADO]');
+    expect(result).not.toContain('\r');
+  });
+
+  it('redacta un .env con finales de línea clásicos de Mac (CR suelto, sin LF)', () => {
+    const content = 'API_KEY=sk-abc123456789\rPORT=3000\r';
+    const result = redactSecrets(content, '.env');
+    expect(result).toBe('API_KEY=[REDACTADO]\nPORT=[REDACTADO]\n');
+  });
+});
+
 describe('countRedactions', () => {
   it('cuenta cuántos marcadores [REDACTADO] hay en el contenido', () => {
     expect(countRedactions('a=[REDACTADO]\nb=[REDACTADO]\nc=1')).toBe(2);

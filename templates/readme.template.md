@@ -31,11 +31,7 @@
 - **Canales**: [[ usage.channels | M | csv | Interfaces o canales por los que se accede al proyecto (ej. web, Teams/Slack, API HTTP, extensión de IDE, CLI, backend interno).]]
 - **Idiomas**: [[ usage.languages | M | csv | Idiomas soportados. ]]
 - **Cómo se inicia**: [[ ux.start_flow | M | Cómo empieza la interacción para quien usa el proyecto: primer mensaje de chat, primer comando, apertura de la extensión, primera petición a la API, etc., según el tipo de interfaz. ]]
-- **Qué preguntas se esperan**: [[ ux.expected_questions | M | list | Ejemplos de preguntas, comandos, peticiones o casos de uso típicos que la solución debe resolver. Aplica solo a interfaces conversacionales, APIs, CLIs u otras interfaces con casos de uso concretos ]]
-- **Adjuntos**: [[ ux.attachments_support | M | Si acepta archivos, imágenes u otros adjuntos, y cómo los usa. Aplica solo si el proyecto tiene una interfaz conversacional o de agente. ]]
-- **Historial/memoria**: [[ ux.history_session_memory | M | Si mantiene contexto, memoria, historial de sesión o conversaciones previas. Aplica solo si el proyecto tiene una interfaz conversacional o de agente. ]]
-- **Errores y fallback**: [[ ux.fallback_error_handling | M | Cómo responde ante errores, excepciones, entradas inválidas o casos no cubiertos.  ]]
-- **Handoff a humano**: [[ ux.human_handoff | M | Si existe escalado a una persona, equipo, canal de soporte o proceso manual. Aplica solo si el proyecto tiene una interfaz conversacional o de agente. ]]
+- **Errores y fallback**: [[ ux.fallback_error_handling | M | Cómo responde ante errores, excepciones, entradas inválidas o casos no cubiertos. Posibles errores desde el punto de vista del usuario.]]
 
 ---
 <!--/section-->

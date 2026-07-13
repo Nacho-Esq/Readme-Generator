@@ -47,8 +47,11 @@ export function isEnvFile(relativePath: string): boolean {
  */
 export function redactSecrets(content: string, relativePath: string): string {
   const envStyle = isEnvFile(relativePath) || ENV_STYLE_EXTENSIONS.has(extname(relativePath));
+  // Se normalizan CRLF/CR sueltos antes de partir en líneas: un `\r` colgante rompe el
+  // ancla `$` de ASSIGNMENT_LINE y hace que la línea caiga silenciosamente al escáner
+  // de tokens (mucho más débil), dejando sin redactar valores que deberían serlo siempre.
   return content
-    .split('\n')
+    .split(/\r\n|\r|\n/)
     .map((line) => redactLine(line, envStyle))
     .join('\n');
 }

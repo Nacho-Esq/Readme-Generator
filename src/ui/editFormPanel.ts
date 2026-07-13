@@ -117,7 +117,7 @@ function getEditHtml(
     button { color: var(--vscode-button-foreground); background: var(--vscode-button-background); border: 0; padding: 8px 12px; cursor: pointer; border-radius: 2px; }
     button.secondary { color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); }
     button.danger { color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); }
-    .layout { display: grid; grid-template-columns: minmax(280px, 420px) minmax(0, 1fr); gap: 18px; align-items: start; }
+    .layout { display: flex; flex-direction: column; gap: 18px; }
     section { border: 1px solid var(--vscode-panel-border); margin: 16px 0; padding: 12px; }
     h2 { margin-top: 0; font-size: 16px; }
     fieldset { border: 1px solid var(--vscode-panel-border); margin: 12px 0; padding: 12px; }
@@ -135,7 +135,6 @@ function getEditHtml(
     ul { padding-left: 20px; }
     pre { white-space: pre-wrap; word-break: break-word; border: 1px solid var(--vscode-panel-border); padding: 16px; background: var(--vscode-textCodeBlock-background); min-height: 70vh; }
     .placeholder { color: var(--vscode-errorForeground); font-weight: 800; background: color-mix(in srgb, var(--vscode-errorForeground) 16%, transparent); }
-    @media (max-width: 1000px) { .layout { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>

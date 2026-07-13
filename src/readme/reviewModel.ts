@@ -16,7 +16,11 @@ export interface MissingField {
 }
 
 export interface ReviewModel {
+  // Campos sin valor que el usuario debe completar (M/A vacíos y campos H).
   missing: MissingField[];
+  // Campos A que el modelo SÍ rellenó: requieren verificación humana antes de
+  // guardar. Los A que quedaron vacíos no van aquí, sino en `missing`.
+  reviewNeeded: MissingField[];
 }
 
 export function createDefaultRenderOptions(): RenderOptions {
@@ -24,16 +28,22 @@ export function createDefaultRenderOptions(): RenderOptions {
 }
 
 export function analyzeReadmeData(data: ReadmeData): ReviewModel {
+  const describe = (field: FieldSpec): MissingField => ({
+    path: field.path,
+    key: fieldKey(field.path),
+    label: field.label,
+    templateSection: field.section
+  });
+
   const missing = getAllFields()
     .filter((field) => isMissingValue(getPathValue(data, field.path), field))
-    .map((field) => ({
-      path: field.path,
-      key: fieldKey(field.path),
-      label: field.label,
-      templateSection: field.section
-    }));
+    .map(describe);
 
-  return { missing };
+  const reviewNeeded = getAllFields()
+    .filter((field) => field.role === 'A' && !isMissingValue(getPathValue(data, field.path), field))
+    .map(describe);
+
+  return { missing, reviewNeeded };
 }
 
 export function prepareDataForReview(data: ReadmeData, renderOptions: RenderOptions): ReadmeData {

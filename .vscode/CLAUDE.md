@@ -160,7 +160,7 @@ flowchart TD
 | Azure client | `src/azure/azureResponsesClient.ts` | `preSelectImportantFiles()` (nano, Fase 6), `extractReadmeData()` (principal, Fase 8) — ambas con JSON schema estricto |
 | Prompt del nano | `src/prompt/fileSelectionPrompt.ts` | `buildContentSelectionPrompt()` (Fase 6), `buildFileSelectionMetadata()` (trace), `getFileSelectionJsonSchema()` |
 | Prompt de extracción | `src/prompt/promptBuilder.ts` | Construye el prompt y schema para la Fase 8 |
-| Parser de plantilla | `src/template/templateSpec.ts` | Parsea `readme.template.md` → campos con ruta, rol M/H, tipo, label y sección. **Fuente única** de la estructura de datos, el schema, las instrucciones y las secciones del panel |
+| Parser de plantilla | `src/template/templateSpec.ts` | Parsea `readme.template.md` → campos con ruta, rol M/H/A, tipo, label y sección. **Fuente única** de la estructura de datos, el schema, las instrucciones y las secciones del panel |
 | Scanner | `src/scanner/fileScanner.ts` | `scanRepository()`, `buildFileInventory()` (Fase 2), `readAllCandidateFiles()`/`readRawContent()` (Fase 5), `splitByTokenBudget()` |
 | Analyzer | `src/scanner/repositoryAnalyzer.ts` | `analyzeRepository()` → `RepositoryMap` |
 | Redactor de secretos | `src/utils/secretRedactor.ts` | `isEnvFile()` — detecta `.env` por nombre; `redactSecrets()` — redacción agresiva en 3 pasadas; `countRedactions()` |
@@ -254,9 +254,10 @@ Expone:
 - `getAllFields()` / `getFormSections()` → campos (path, rol, tipo JSON, label, sección) y su agrupación para el panel.
 - `buildDataJsonSchema()` → JSON Schema de Azure (rutas + tipos derivados, excluyendo campos H).
 - `buildEmptyData({ excludeHuman })` → objeto vacío con la forma exacta; con `excludeHuman` para el ejemplo de salida del prompt.
-- `buildFieldInstructionText()` → instrucciones de campos M para el prompt. Para un campo `env` añade automáticamente las sub-instrucciones `.name`/`.description` derivadas de su tipo (no de un path hardcodeado).
+- `buildFieldInstructionText()` → instrucciones de los campos que rellena el modelo (M **y A**) para el prompt. Para un campo `env` añade automáticamente las sub-instrucciones `.name`/`.description` derivadas de su tipo (no de un path hardcodeado).
 - `getFieldInstruction(path)` → instrucción individual (placeholder del panel); resuelve los sub-campos de `env` detectando que el padre del path es de tipo `env`.
 - `isHumanField(path)` → `true` si el campo es H.
+- `isReviewField(path)` → `true` si el campo es A (el modelo lo rellena como un M, pero requiere revisión humana).
 - `fieldKey(path)` → clave normalizada para `omitFields`.
 
 **El tipo `ReadmeData` (en `types.ts`) es ahora un alias laxo (`Record<string, unknown>`)**: el acceso a los datos es dinámico por ruta. **Añadir un campo nuevo = una sola línea en la plantilla** (token con su ruta, rol, tipo e instrucción); el modelo lo busca, aparece en el schema, en el panel y en el README sin tocar código.
@@ -276,7 +277,7 @@ Los campos sin información llevan el marcador `RELLENAR POR USUARIO` (constante
 ### Componente activo: `src/ui/editFormPanel.ts`
 
 Es el panel de UI de la Fase 9. Implementa una webview de VS Code con:
-- **Columna izquierda**: listado de advertencias, formulario de campos organizados en secciones (`getFormSections()` del parser de la plantilla), marcando esenciales vs opcionales
+- **Columna izquierda**: listado de advertencias; **bloque "Campos a revisar"** (los campos de rol **A** que el modelo sí rellenó — `review.reviewNeeded` —, con su valor precargado y editable para que el humano lo verifique/corrija, badge ámbar "revisar"); y **bloque "Campos pendientes"** (los campos vacíos que el usuario debe completar — `review.missing` —, incluidos los campos A que el modelo dejó vacíos, badge rojo "pendiente"). Ambos bloques permiten descartar campos.
 - **Columna derecha**: preview markdown en tiempo real (debounce 150ms)
 - **Flujo de mensajes**: cambio en formulario → `collect()` JS → `postMessage()` → extensión → re-render (renderer propio) → webview actualiza preview
 

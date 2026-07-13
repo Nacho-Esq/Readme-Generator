@@ -6,7 +6,10 @@
 //  - el render del README final.
 // No hay estructura de campos hardcodeada en ningún otro fichero.
 
-export type FieldRole = 'M' | 'H';
+// Roles: M = lo busca el modelo; H = lo rellena el humano (fuera de prompt y
+// schema); A = "ambos" = el modelo lo trata igual que un M (lo busca y rellena),
+// pero lo que rellene se marca para revisión humana en el panel antes de guardar.
+export type FieldRole = 'M' | 'H' | 'A';
 
 export type RenderType = 'text' | 'csv' | 'list' | 'env' | 'code' | 'raw' | 'image';
 
@@ -63,10 +66,12 @@ const SECTION_NUMBER_PREFIX = /^\d+\.\s*/;
 export function parseToken(rawContent: string): ParsedToken {
   const parts = rawContent.split('|').map((part) => part.trim());
   const path = parts[0] ?? '';
-  // Solo hay dos roles: M (lo busca el modelo) y H (lo rellena el humano). No
-  // existe la noción de campo "opcional": cualquier campo M puede quedar vacío
-  // para que lo complete el usuario, y cualquier campo puede descartarse.
-  const role: FieldRole = (parts[1] ?? 'M').toUpperCase().startsWith('H') ? 'H' : 'M';
+  // Roles: M (lo busca el modelo), H (lo rellena el humano) y A (el modelo lo
+  // busca como un M, pero se marca para revisión humana). No existe la noción de
+  // campo "opcional": cualquier campo M/A puede quedar vacío para que lo complete
+  // el usuario, y cualquier campo puede descartarse.
+  const roleLetter = (parts[1] ?? 'M').toUpperCase();
+  const role: FieldRole = roleLetter.startsWith('H') ? 'H' : roleLetter.startsWith('A') ? 'A' : 'M';
 
   const rest = parts.slice(2);
   let type: RenderType | undefined;
@@ -256,15 +261,22 @@ export function isHumanField(path: string): boolean {
   return getTemplateSpec().byPath.get(path)?.role === 'H';
 }
 
+// Campo A (ambos): el modelo lo rellena como un M, pero requiere revisión humana.
+export function isReviewField(path: string): boolean {
+  return getTemplateSpec().byPath.get(path)?.role === 'A';
+}
+
 export function fieldKey(path: string): string {
   return path.replace(/[^a-zA-Z0-9]/g, '_');
 }
 
-// Instrucciones por campo que se inyectan en el prompt del modelo: solo los campos M.
+// Instrucciones por campo que se inyectan en el prompt del modelo: los campos que
+// el modelo debe rellenar (M y A). Los A se tratan igual que los M en el prompt;
+// su distinción (revisión humana) solo aplica después, en el panel.
 export function buildFieldInstructionText(): string {
   const lines: string[] = [];
   for (const field of getAllFields()) {
-    if (field.role !== 'M') {
+    if (field.role === 'H') {
       continue;
     }
     lines.push(`- ${field.path}: ${field.instruction}`);

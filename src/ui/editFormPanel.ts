@@ -96,12 +96,23 @@ function getEditHtml(
   renderOptions: RenderOptions
 ): string {
   const nonce = getNonce();
+  const reviewFields = getReviewFields(review);
   const pendingFields = getPendingFields(review);
+  // El JS del webview necesita ambos grupos para recolectar valores, marcar
+  // vacíos y descartar. Los de revisión van primero (aparecen antes en el panel).
+  const editableFields = [...reviewFields, ...pendingFields];
   const warningItems = warnings.length
     ? warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join('')
     : '<li>No hay advertencias del modelo.</li>';
+  const reviewSection = reviewFields.length
+    ? `<section>
+        <h2>Campos a revisar</h2>
+        <p class="muted">El modelo rellenó estos campos, pero pueden estar incompletos o ser imprecisos. Revísalos y corrige lo que sea necesario antes de guardar.</p>
+        ${reviewFields.map((field) => fieldEditor(field, data, 'review')).join('')}
+      </section>`
+    : '';
   const pendingContent = pendingFields.length
-    ? pendingFields.map((field) => fieldEditor(field, data)).join('')
+    ? pendingFields.map((field) => fieldEditor(field, data, 'pending')).join('')
     : '<p class="muted">No hay campos pendientes de completar.</p>';
 
   return `<!DOCTYPE html>
@@ -126,6 +137,8 @@ function getEditHtml(
     .section-prefix { color: var(--vscode-descriptionForeground); font-weight: 400; font-size: 11px; }
     textarea { width: 100%; box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); padding: 8px; font-family: var(--vscode-editor-font-family); min-height: 82px; resize: vertical; }
     textarea::placeholder { color: var(--vscode-input-placeholderForeground); font-style: italic; }
+    .review label::before { content: "revisar"; display: block; color: var(--vscode-editorWarning-foreground, #cca700); font-weight: 700; text-transform: uppercase; }
+    .review textarea { border-color: var(--vscode-editorWarning-foreground, #cca700); }
     .missing label::before { content: "pendiente"; display: block; color: var(--vscode-errorForeground); font-weight: 700; text-transform: uppercase; }
     .missing textarea { border-color: var(--vscode-errorForeground); color: var(--vscode-errorForeground); font-weight: 700; }
     .field-header { display: flex; gap: 8px; justify-content: space-between; align-items: start; }
@@ -148,6 +161,7 @@ function getEditHtml(
         <h2>Advertencias del generador</h2>
         <ul>${warningItems}</ul>
       </section>
+      ${reviewSection}
       <section>
         <h2>Campos pendientes</h2>
         ${pendingContent}
@@ -161,7 +175,7 @@ function getEditHtml(
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const baseData = ${JSON.stringify(data)};
-    const fields = ${JSON.stringify(pendingFields)};
+    const fields = ${JSON.stringify(editableFields)};
     const renderOptions = ${JSON.stringify(renderOptions)};
 
     function clone(value) {
@@ -285,21 +299,32 @@ function getEditHtml(
 }
 
 function getPendingFields(review: ReviewModel): PendingField[] {
-  const missingPaths = new Set(review.missing.map((field) => field.path));
+  return selectFields(review.missing);
+}
+
+// Campos A que el modelo rellenó: se muestran para verificación humana.
+function getReviewFields(review: ReviewModel): PendingField[] {
+  return selectFields(review.reviewNeeded);
+}
+
+function selectFields(entries: ReviewModel['missing']): PendingField[] {
+  const paths = new Set(entries.map((field) => field.path));
   return getFormSections()
     .flatMap((section) => section.fields.map((field) => ({ ...field, sectionTitle: section.title })))
-    .filter((field) => missingPaths.has(field.path))
+    .filter((field) => paths.has(field.path))
     .map((field) => ({ ...field, key: fieldKey(field.path), kind: field.panelKind }));
 }
 
-function fieldEditor(field: PendingField, data: ReadmeData): string {
+function fieldEditor(field: PendingField, data: ReadmeData, variant: 'pending' | 'review' = 'pending'): string {
   const rawValue = getPathValue(data, field.path);
   const value = formatValue(rawValue, field);
   const isMissing = value.trim() === '' || value.split('\n').some((line) => isPlaceholderValue(line) || line.includes(FILL_PLACEHOLDER));
-  const displayValue = isMissing ? '' : value;
+  // En 'review' el modelo sí aportó un valor: se muestra para verificar/corregir,
+  // no se vacía. En 'pending' se deja en blanco para que el usuario lo complete.
+  const displayValue = variant === 'review' ? value : (isMissing ? '' : value);
   const hint = hintForKind(field.kind);
   const key = fieldKey(field.path);
-  const classes = isMissing ? 'missing' : '';
+  const classes = variant === 'review' ? 'review' : (isMissing ? 'missing' : '');
   const discardButton = '<button type="button" class="danger" data-action="discard">Descartar campo</button>';
   const placeholder = getPlaceholderText(field.path);
 

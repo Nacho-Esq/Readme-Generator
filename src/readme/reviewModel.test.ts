@@ -67,6 +67,34 @@ describe('analyzeReadmeData', () => {
   });
 });
 
+describe('analyzeReadmeData: campos A (revisión)', () => {
+  const TEMPLATE_A = [
+    '[[ m_campo | M | text | i ]]',
+    '[[ a_campo | A | text | i ]]'
+  ].join('\n');
+
+  beforeEach(() => {
+    initTemplateSpec(TEMPLATE_A);
+  });
+
+  it('un campo A que el modelo rellenó va a reviewNeeded y no a missing', () => {
+    const result = analyzeReadmeData({ m_campo: 'x', a_campo: 'valor del modelo' });
+    expect(result.reviewNeeded.map((f) => f.path)).toContain('a_campo');
+    expect(result.missing.map((f) => f.path)).not.toContain('a_campo');
+  });
+
+  it('un campo A vacío va a missing (como un M) y no a reviewNeeded', () => {
+    const result = analyzeReadmeData({ m_campo: 'x', a_campo: '   ' });
+    expect(result.missing.map((f) => f.path)).toContain('a_campo');
+    expect(result.reviewNeeded.map((f) => f.path)).not.toContain('a_campo');
+  });
+
+  it('un campo M relleno nunca aparece en reviewNeeded', () => {
+    const result = analyzeReadmeData({ m_campo: 'x', a_campo: 'y' });
+    expect(result.reviewNeeded.map((f) => f.path)).not.toContain('m_campo');
+  });
+});
+
 describe('prepareDataForReview', () => {
   it('inserta el placeholder de texto en los campos faltantes', () => {
     const result = prepareDataForReview({ texto: '', lista: ['a'], vars: [{ name: 'X', description: '' }], otro: 'x' }, createDefaultRenderOptions());

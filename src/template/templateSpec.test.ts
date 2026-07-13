@@ -12,6 +12,7 @@ import {
   getFormSections,
   initTemplateSpec,
   isHumanField,
+  isReviewField,
   parseTemplate,
   parseToken
 } from './templateSpec';
@@ -35,6 +36,12 @@ describe('parseToken', () => {
   it('detecta el rol H sin importar mayúsculas/minúsculas', () => {
     expect(parseToken('contacto | h | Email').role).toBe('H');
     expect(parseToken('contacto | Humano | Email').role).toBe('H');
+  });
+
+  it('detecta el rol A (ambos) sin importar mayúsculas/minúsculas', () => {
+    expect(parseToken('campo | A | i').role).toBe('A');
+    expect(parseToken('campo | a | i').role).toBe('A');
+    expect(parseToken('campo | Ambos | i').role).toBe('A');
   });
 
   it('si el segundo segmento no es un tipo conocido, se trata como parte de la instrucción', () => {
@@ -197,16 +204,58 @@ describe('derivación de estructura de datos desde la plantilla', () => {
     expect(isHumanField('project_name')).toBe(false);
   });
 
+  it('isReviewField reconoce los campos de rol A y no confunde M ni H', () => {
+    initTemplateSpec(
+      [
+        '[[ a_campo | A | text | i ]]',
+        '[[ m_campo | M | text | i ]]',
+        '[[ h_campo | H | text | i ]]'
+      ].join('\n')
+    );
+    expect(isReviewField('a_campo')).toBe(true);
+    expect(isReviewField('m_campo')).toBe(false);
+    expect(isReviewField('h_campo')).toBe(false);
+    // Un campo A no es un campo humano: el modelo debe rellenarlo.
+    expect(isHumanField('a_campo')).toBe(false);
+  });
+
+  it('un campo A se incluye en el schema y en buildEmptyData como un campo del modelo (no como H)', () => {
+    initTemplateSpec(
+      [
+        '[[ a_campo | A | text | i ]]',
+        '[[ h_campo | H | text | i ]]'
+      ].join('\n')
+    );
+    const schema = buildDataJsonSchema() as any;
+    expect(schema.properties).toHaveProperty('a_campo');
+    expect(schema.properties).not.toHaveProperty('h_campo');
+    const withoutHuman = buildEmptyData({ excludeHuman: true }) as Record<string, unknown>;
+    expect(withoutHuman).toHaveProperty('a_campo');
+    expect(withoutHuman).not.toHaveProperty('h_campo');
+  });
+
   it('fieldKey convierte cualquier carácter no alfanumérico en "_"', () => {
     expect(fieldKey('local_development.env_variables')).toBe('local_development_env_variables');
   });
 
-  it('buildFieldInstructionText solo incluye campos M, y añade las sub-líneas de los campos env', () => {
+  it('buildFieldInstructionText incluye campos M y A (no H), y añade las sub-líneas de los campos env', () => {
     const text = buildFieldInstructionText();
     expect(text).toContain('project_name: Nombre del proyecto');
     expect(text).not.toContain('summary.status');
     expect(text).toContain('local_development.env_variables.name');
     expect(text).toContain('local_development.env_variables.description');
+  });
+
+  it('buildFieldInstructionText trata los campos A igual que los M (los incluye en el prompt)', () => {
+    initTemplateSpec(
+      [
+        '[[ a_campo | A | text | instrucción del campo A ]]',
+        '[[ h_campo | H | text | instrucción del campo H ]]'
+      ].join('\n')
+    );
+    const text = buildFieldInstructionText();
+    expect(text).toContain('a_campo: instrucción del campo A');
+    expect(text).not.toContain('h_campo');
   });
 
   it('getFormSections agrupa los campos por sección en orden de aparición', () => {
@@ -226,7 +275,7 @@ describe('regresión: la plantilla real del proyecto debe seguir siendo válida'
 
     for (const field of spec.fields) {
       expect(field.path.length).toBeGreaterThan(0);
-      expect(['M', 'H']).toContain(field.role);
+      expect(['M', 'H', 'A']).toContain(field.role);
       expect(field.instruction.trim().length).toBeGreaterThan(0);
     }
   });

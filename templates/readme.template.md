@@ -6,6 +6,7 @@
 
 <!--section:resumen-->
 ## 1. Resumen
+<!--context: Sección de presentación general del proyecto. Es lo primero que lee alguien que llega al repositorio: debe dar una visión de alto nivel de qué es, para qué sirve y en qué estado está, sin entrar en detalles técnicos. Rellena estos campos pensando en dar contexto rápido y comprensible. -->
 
 - **Qué es**: [[ summary.what_is | M | Resumen claro (2-4 frases) de qué hace el proyecto, cuáles son sus objetivos y qué problema resuelve.]]
 - **Tipo**: [[ summary.project_type | M | Clasifica el proyecto en una o más categorías, según evidencia objetiva (entry point, manifest, dependencias, forma de despliegue). Indica aquellas que coincidan: "chatbot" (interfaz conversacional que responde mensajes turno a turno; NO planifica ni ejecuta acciones externas por sí mismo); "agente IA" (además de conversar, planifica y ejecuta acciones de forma autónoma llamando herramientas/funciones/APIs para completar tareas); "extensión/plugin" (se instala dentro de una aplicación anfitriona y depende de su runtime); "API/servicio backend" (expone endpoints REST/GraphQL/gRPC/webhooks consumidos por otros programas, sin interfaz de usuario propia); "aplicación frontend/web" (interfaz visual consumida directamente por personas en navegador u otro cliente gráfico); "librería/SDK" (paquete pensado para ser importado por otro código, no se ejecuta de forma independiente); "CLI" (herramienta invocada por línea de comandos); "servicio interno/batch" (proceso automatizado sin interacción directa de usuario final, p. ej. cron, workers, pipelines de datos); u "otro: <breve descripción>" solo si ninguna categoría anterior encaja. Si el proyecto combina varias capas, explícalo y menciona todas, recalcando cuál es con la que interactúa el usuario final]]
@@ -16,6 +17,7 @@
 
 <!--section:alcance-->
 ## 2. Alcance y limitaciones
+<!--context: Sección que delimita las fronteras del proyecto. Su objetivo es dejar claro qué responsabilidades asume y cuáles quedan explícitamente fuera, para gestionar expectativas y evitar usos indebidos. Rellena estos campos distinguiendo entre lo que el proyecto sí hace, lo que deliberadamente no hace y sus limitaciones técnicas conocidas. -->
 
 - **Qué incluye**: [[ scope.includes | M | list | Capacidades, módulos, responsabilidades o funcionalidades cubiertas por el proyecto. ]]
 - **Qué no incluye**: [[ scope.excludes | H | list | Exclusiones explícitas, responsabilidades fuera de alcance o límites funcionales. ]]
@@ -26,10 +28,11 @@
 
 <!--section:experiencia-usuario-->
 ## 3. Experiencia de usuario
+<!--context: Sección centrada en cómo las personas usuarias finales interactúan con el proyecto. Su objetivo es describir la solución desde el punto de vista de quien la usa, no desde la implementación: quién la usa, por qué canales, cómo empieza la interacción y qué ocurre cuando algo falla. Rellena estos campos con la perspectiva de la experiencia de uso, no la técnica interna. -->
 
 - **Usuarios objetivo**: [[ summary.target_users | H | csv | Perfiles finales que usarán la solución, y en qué contexto lo harán. ]]
-- **Canales**: [[ usage.channels | M | csv | Interfaces o canales por los que se accede al proyecto (ej. web, Teams/Slack, API HTTP, extensión de IDE, CLI, backend interno).]]
-- **Idiomas**: [[ usage.languages | M | csv | Idiomas soportados. ]]
+- **Canales**: [[ usage.channels | A | csv | Interfaces o canales por los que se accede al proyecto (ej. web, Teams/Slack, API HTTP, extensión de IDE, CLI, backend interno).]]
+- **Idiomas**: [[ usage.languages | A | csv | Idiomas soportados. ]]
 - **Cómo se inicia**: [[ ux.start_flow | M | Cómo empieza la interacción para quien usa el proyecto: primer mensaje de chat, primer comando, apertura de la extensión, primera petición a la API, etc., según el tipo de interfaz. ]]
 - **Errores y fallback**: [[ ux.fallback_error_handling | M | Cómo responde ante errores, excepciones, entradas inválidas o casos no cubiertos. Posibles errores desde el punto de vista del usuario.]]
 
@@ -38,6 +41,7 @@
 
 <!--section:arquitectura-->
 ## 4. Arquitectura
+<!--context: Sección técnica que describe la estructura interna del sistema y cómo fluyen los datos. Su objetivo es que una persona desarrolladora entienda las piezas reales del proyecto, sus responsabilidades y sus dependencias externas. Rellena estos campos con la vista técnica interna, basándote en los componentes reales detectados en el repositorio, no en ejemplos genéricos. -->
 
 - **Diagrama lógico**: [[ architecture.logical_flow | M | raw | Genera un diagrama visual atractivo y compacto en formato Mermaid que muestre el flujo lógico del proyecto documentado: usuario/sistema que lo invoca, interfaz de entrada, componentes internos reales y servicios externos. Salida requerida: 1) Un bloque fenced de Mermaid (tres backticks, la palabra "mermaid", el diagrama y cierre con tres backticks) con un flowchart o gráfico de arquitectura (usa subgraph/flowchart, flechas claras, nombres legibles y anotaciones breves). 2) Una línea breve (1-2 frases) como leyenda que explique el objetivo del diagrama. 3) Si no es posible generar Mermaid, una alternativa textual compacta (máx. 3 líneas). Prioriza claridad visual: agrupa los componentes REALES detectados en este repositorio (usa los nombres que encuentres en el código/documentación, no una lista de ejemplo) y marca la dirección principal de datos (entrada -> procesamiento -> salida/respuesta). No añadas largos párrafos ni listas; solo el bloque Mermaid seguido de la leyenda. ]]
 - **Componentes principales**: [[ architecture.components | M | list | Componentes clave del sistema y responsabilidad principal de cada uno. ]]
@@ -48,6 +52,7 @@
 
 <!--section:conocimiento-->
 ## 5. Conocimiento y prompts
+<!--context: Sección específica de proyectos con componente de IA (chatbots, agentes, sistemas basados en LLM o RAG). Su objetivo es documentar el "cerebro" del sistema: qué modelos usa, de qué fuentes de conocimiento se nutre, cómo recupera información y cómo se controla su comportamiento. Rellena estos campos solo si hay evidencia de un componente de IA; si el proyecto no lo tiene, déjalos vacíos. -->
 
 - **Modelos de IA**: [[ knowledge_prompts.models | M | list | Modelo o modelos de lenguaje que utiliza el proyecto: proveedor y nombre (p. ej. OpenAI GPT-4o, Anthropic Claude), y parámetros clave como temperatura o máximo de tokens si están configurados. ]]
 - **Fuentes**: [[ knowledge_prompts.sources | M | list | Fuentes de conocimiento que usa el modelo: documentos, índices, APIs, bases de datos, ficheros o repositorios. ]]
@@ -61,6 +66,7 @@
 
 <!--section:desarrollo-local-->
 ## 6. Desarrollo local
+<!--context: Sección práctica dirigida a quien quiere ejecutar el proyecto en su propia máquina. Su objetivo es que una persona desarrolladora nueva pueda arrancarlo de cero: requisitos, configuración, datos necesarios, comandos y forma de comprobar que funciona. Rellena estos campos con pasos concretos y reproducibles extraídos de scripts, manifests y documentación reales. -->
 
 - **Requisitos**: [[ local_development.requirements | M | list | Runtimes, versiones, dependencias y herramientas necesarias para desarrollar el proyecto en local. ]]
 - **Variables de entorno**: [[ local_development.env_variables | M | env | Variables de entorno detectadas en .env.example, config o código, y finalidad de cada una. ]]
@@ -74,6 +80,7 @@
 
 <!--section:seguridad-->
 ## 7. Seguridad, privacidad y cumplimiento
+<!--context: Sección sobre el tratamiento seguro de los datos y el cumplimiento normativo. Su objetivo es documentar qué datos maneja el proyecto, cómo se almacenan y protegen, quién puede acceder y qué obligaciones de cumplimiento aplican. Rellena estos campos solo con evidencias claras del repositorio; ante la duda déjalos vacíos, ya que afirmar algo incorrecto sobre seguridad es especialmente sensible. -->
 
 - **Datos tratados**: [[ security_privacy.processed_data | M | list | Tipos de datos procesados, especialmente datos personales, sensibles o corporativos. ]]
 - **Retención/almacenamiento**: [[ security_privacy.retention_storage | M | Si los datos se almacenan, dónde y durante cuánto tiempo. ]]
@@ -86,6 +93,7 @@
 
 <!--section:despliegue-->
 ## 8. Despliegue
+<!--context: Sección sobre cómo se lleva el proyecto a entornos reales de ejecución. Su objetivo es documentar los requisitos previos, los entornos existentes, el proceso de despliegue y las diferencias entre entornos. Rellena estos campos con la vista de operaciones/entrega, basándote en pipelines, contenedores, IaC, scripts y documentación de despliegue reales. -->
 
 - **Requisitos previos**: [[ deployment.prerequisites | M | list | Cuentas, planes o servicios de terceros que hay que contratar o provisionar y claves de API que hay que obtener y aportar para poner el proyecto en marcha (p. ej. clave de proveedor LLM). ]]
 - **Entornos**: [[ deployment.environments | M | list | Entornos detectados: local, desarrollo, preproducción, producción, cloud u otros. ]]
@@ -97,6 +105,7 @@
 
 <!--section:operacion-->
 ## 9. Operación y observabilidad
+<!--context: Sección sobre cómo se opera y monitoriza el proyecto una vez en marcha. Su objetivo es que el equipo que lo mantiene sepa dónde mirar los logs y métricas, qué señales vigilar, cómo se alerta y cómo se gestionan las incidencias. Rellena estos campos con la perspectiva de quien mantiene el sistema en producción, priorizando las señales relevantes para este tipo de proyecto. -->
 
 - **Telemetría**: [[ operations.telemetry | M | Dónde consultar y cómo se generan los logs, trazas y métricas del proyecto (librerías de logging, instrumentación de trazas, exporters de métricas o herramientas de monitorización). ]]
 - **Señales clave**: [[ operations.key_signals | M | list | Métricas clave a vigilar según el tipo de proyecto (ej. error rate y latencia para APIs; tokens/coste y ratio de fallback para sistemas basados en LLM; ratio de escalado a humano para agentes; throughput para pipelines batch). Incluye solo las relevantes para este proyecto. ]]
@@ -108,6 +117,7 @@
 
 <!--section:documentacion-->
 ## 10. Documentación y enlaces
+<!--context: Sección que reúne los recursos externos y documentación adicional del proyecto. Su objetivo es servir de índice de navegación hacia manuales, repositorios, pipelines, dashboards y otros enlaces útiles. Rellena estos campos con referencias reales encontradas en el repositorio; no inventes enlaces. -->
 
 - **Documentación**: [[ documentation_links.manuals_docs | M | list | Manuales, documentación técnica, guías o archivos relevantes del repositorio. ]]
 - **Repositorios y CI/CD**: [[ documentation_links.repos_pipelines | H | list | Repositorios, pipelines, workflows o recursos de CI/CD del proyecto. ]]
@@ -118,6 +128,7 @@
 
 <!--section:mejoras-->
 ## 11. Roadmap / mejoras
+<!--context: Sección sobre la evolución futura prevista del proyecto. Su objetivo es recoger mejoras planificadas, trabajo pendiente o elementos de roadmap. Rellena este campo solo con planes de futuro explícitos hallados en el repositorio (TODOs, issues, notas de roadmap); no propongas mejoras inventadas. -->
 
 [[ roadmap | H | list | Mejoras futuras o elementos de roadmap.]]
 
@@ -126,6 +137,7 @@
 
 <!--section:contactos-->
 ## 12. Contactos y ownership
+<!--context: Sección que identifica a las personas y equipos responsables del proyecto. Su objetivo es saber a quién acudir para dudas, decisiones o incidencias. Rellena estos campos solo con nombres, equipos o contactos que aparezcan explícitamente en el repositorio; si no hay evidencia clara, déjalos vacíos para que los complete el usuario. -->
 
 - **Product owner**: [[ contacts.product_owner | H | Product owner. ]]
 - **Responsable técnico**: [[ contacts.technical_owner | H | Responsable técnico.  ]]
@@ -136,6 +148,7 @@
 
 <!--section:proyectos-relacionados-->
 ## 13. Proyectos relacionados
+<!--context: Sección que enlaza este proyecto con otros del ecosistema. Su objetivo es dar contexto sobre dependencias, proyectos hermanos o repositorios relacionados. Rellena este campo solo con proyectos realmente vinculados y mencionados en el repositorio. -->
 
 [[ related_projects | H | list | Proyectos relacionados. ]]
 

@@ -109,6 +109,42 @@ describe('parseTemplate', () => {
     expect(spec.byPath.get('fuera.seccion')?.sectionKey).toBeUndefined();
   });
 
+  it('asocia el contexto de <!--context: ... --> a los campos de la sección', () => {
+    const template = [
+      '## 3. Experiencia de usuario',
+      '<!--context: Contexto de la sección UX. -->',
+      '- **Canales**: [[ usage.channels | M | csv | Canales ]]',
+      '- **Idiomas**: [[ usage.languages | M | csv | Idiomas ]]'
+    ].join('\n');
+    const spec = parseTemplate(template);
+    expect(spec.byPath.get('usage.channels')?.sectionContext).toBe('Contexto de la sección UX.');
+    expect(spec.byPath.get('usage.languages')?.sectionContext).toBe('Contexto de la sección UX.');
+  });
+
+  it('el contexto de una sección no se filtra a la siguiente', () => {
+    const template = [
+      '## 3. UX',
+      '<!--context: Contexto UX. -->',
+      '[[ ux.field | M | text | i ]]',
+      '## 4. Arquitectura',
+      '[[ arch.field | M | text | i ]]'
+    ].join('\n');
+    const spec = parseTemplate(template);
+    expect(spec.byPath.get('ux.field')?.sectionContext).toBe('Contexto UX.');
+    expect(spec.byPath.get('arch.field')?.sectionContext).toBeUndefined();
+  });
+
+  it('colapsa un <!--context: ... --> escrito en varias líneas a una sola', () => {
+    const template = [
+      '## 3. UX',
+      '<!--context: Primera línea',
+      '   segunda línea. -->',
+      '[[ ux.field | M | text | i ]]'
+    ].join('\n');
+    const spec = parseTemplate(template);
+    expect(spec.byPath.get('ux.field')?.sectionContext).toBe('Primera línea segunda línea.');
+  });
+
   it('ignora comentarios HTML que no son marcadores de sección', () => {
     const template = '<!-- ejemplo: [[ ejemplo | M | text | no cuenta ]] -->\n[[ real | M | text | sí cuenta ]]\n';
     const spec = parseTemplate(template);
@@ -244,6 +280,35 @@ describe('derivación de estructura de datos desde la plantilla', () => {
     expect(text).not.toContain('summary.status');
     expect(text).toContain('local_development.env_variables.name');
     expect(text).toContain('local_development.env_variables.description');
+  });
+
+  it('buildFieldInstructionText agrupa los campos por sección e inyecta el contexto de cada una', () => {
+    initTemplateSpec(
+      [
+        '## 3. Experiencia de usuario',
+        '<!--context: Cómo interactúan las personas usuarias. -->',
+        '- **Canales**: [[ usage.channels | M | csv | Canales ]]',
+        '## 4. Arquitectura',
+        '<!--context: Estructura técnica interna. -->',
+        '- **Componentes**: [[ architecture.components | M | list | Componentes ]]'
+      ].join('\n')
+    );
+    const text = buildFieldInstructionText();
+    expect(text).toContain('Sección «Experiencia de usuario» — Cómo interactúan las personas usuarias.');
+    expect(text).toContain('Sección «Arquitectura» — Estructura técnica interna.');
+    // El campo de cada sección aparece bajo su encabezado de contexto.
+    const uxIdx = text.indexOf('Experiencia de usuario');
+    const archIdx = text.indexOf('Arquitectura');
+    expect(text.indexOf('usage.channels')).toBeGreaterThan(uxIdx);
+    expect(text.indexOf('usage.channels')).toBeLessThan(archIdx);
+    expect(text.indexOf('architecture.components')).toBeGreaterThan(archIdx);
+  });
+
+  it('buildFieldInstructionText incluye el encabezado de sección aunque no haya contexto declarado', () => {
+    initTemplateSpec('## 1. Resumen\n[[ project_name | M | text | Nombre ]]\n');
+    const text = buildFieldInstructionText();
+    expect(text).toContain('Sección «Resumen»');
+    expect(text).not.toContain('Sección «Resumen» —');
   });
 
   it('buildFieldInstructionText trata los campos A igual que los M (los incluye en el prompt)', () => {

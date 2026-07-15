@@ -112,6 +112,18 @@ describe('renderTemplate: omisión de campos y secciones', () => {
     expect(out).not.toContain('valor');
   });
 
+  it('el contexto de sección <!--context: ... --> no aparece en el README renderizado', () => {
+    const template = [
+      '## 3. Experiencia de usuario',
+      '<!--context: Este texto es solo para el modelo y no debe filtrarse al README. -->',
+      '- **Canales**: [[ usage.channels | M | csv | i ]]'
+    ].join('\n');
+    const out = render(template, { usage: { channels: 'web, CLI' } });
+    expect(out).toContain('web, CLI');
+    expect(out).not.toContain('solo para el modelo');
+    expect(out).not.toContain('context:');
+  });
+
   it('tras omitir una sección, los encabezados numerados se renumeran de forma consecutiva', () => {
     const template = [
       '<!--section:extra-->',

@@ -34,6 +34,11 @@ export interface FieldSpec extends ParsedToken {
   // Clave del marcador <!--section:KEY--> que envuelve al campo (secciones
   // omitibles). undefined si el campo no está en una sección opcional.
   sectionKey?: string;
+  // Contexto de la sección declarado con <!--context: ... --> bajo el encabezado.
+  // Describe de qué trata la sección para el modelo; se inyecta en el prompt junto
+  // a la instrucción del campo, pero NO aparece en el README final. undefined si la
+  // sección no declara contexto.
+  sectionContext?: string;
   jsonType: JsonType;
   panelKind: PanelKind;
 }
@@ -59,6 +64,7 @@ export const TOKEN_REGEX = /\[\[([\s\S]*?)\]\]/g;
 const COMMENT_REGEX = /<!--[\s\S]*?-->/g;
 const SECTION_OPEN_SENTINEL = '@@SECTION:';
 const SECTION_CLOSE_SENTINEL = '@@ENDSECTION';
+const SECTION_CONTEXT_SENTINEL = '@@CONTEXT:';
 const HEADING_REGEX = /^#{1,6}\s+(\S.*?)\s*$/;
 const BOLD_REGEX = /\*\*(.+?)\*\*/;
 const SECTION_NUMBER_PREFIX = /^\d+\.\s*/;
@@ -88,16 +94,19 @@ export function parseTemplate(text: string): TemplateSpec {
   const fields: FieldSpec[] = [];
   const byPath = new Map<string, FieldSpec>();
 
-  // Convertir los marcadores de sección en sentinels de una línea y luego quitar
-  // el resto de comentarios HTML (p. ej. la cabecera explicativa con su token de
-  // ejemplo), para no tomarlos como campos reales.
+  // Convertir los marcadores de sección y de contexto en sentinels de una línea y
+  // luego quitar el resto de comentarios HTML (p. ej. la cabecera explicativa con
+  // su token de ejemplo), para no tomarlos como campos reales. El marcador de
+  // contexto se colapsa a una sola línea por si abarca varias en la plantilla.
   const stripped = text
     .replace(/<!--section:([\w-]+)-->/g, `${SECTION_OPEN_SENTINEL}$1`)
     .replace(/<!--\/section-->/g, SECTION_CLOSE_SENTINEL)
+    .replace(/<!--context:([\s\S]*?)-->/g, (_match, ctx: string) => `${SECTION_CONTEXT_SENTINEL}${ctx.replace(/\s+/g, ' ').trim()}`)
     .replace(COMMENT_REGEX, '');
 
   let currentSection = '';
   let currentSectionKey: string | undefined;
+  let currentSectionContext: string | undefined;
 
   for (const line of stripped.split('\n')) {
     const trimmed = line.trim();
@@ -109,15 +118,22 @@ export function parseTemplate(text: string): TemplateSpec {
       currentSectionKey = undefined;
       continue;
     }
+    if (trimmed.startsWith(SECTION_CONTEXT_SENTINEL)) {
+      currentSectionContext = trimmed.slice(SECTION_CONTEXT_SENTINEL.length).trim() || undefined;
+      continue;
+    }
 
     const tokenMatches = [...line.matchAll(TOKEN_REGEX)];
 
     // Un heading SIN token define una nueva sección. Si el heading contiene un
-    // token (p. ej. "# [[ project_name ]]"), no es un título de sección.
+    // token (p. ej. "# [[ project_name ]]"), no es un título de sección. Al cambiar
+    // de sección se descarta el contexto anterior: cada sección declara el suyo con
+    // su propio <!--context: ... --> bajo el encabezado.
     if (tokenMatches.length === 0) {
       const heading = line.match(HEADING_REGEX);
       if (heading) {
         currentSection = heading[1].replace(SECTION_NUMBER_PREFIX, '').trim();
+        currentSectionContext = undefined;
       }
       continue;
     }
@@ -128,7 +144,7 @@ export function parseTemplate(text: string): TemplateSpec {
         continue;
       }
       const before = line.slice(0, match.index ?? 0);
-      const field = enrichField(token, before, currentSection, currentSectionKey);
+      const field = enrichField(token, before, currentSection, currentSectionKey, currentSectionContext);
       fields.push(field);
       if (!byPath.has(field.path)) {
         byPath.set(field.path, field);
@@ -139,7 +155,13 @@ export function parseTemplate(text: string): TemplateSpec {
   return { fields, byPath };
 }
 
-function enrichField(token: ParsedToken, before: string, currentSection: string, sectionKey: string | undefined): FieldSpec {
+function enrichField(
+  token: ParsedToken,
+  before: string,
+  currentSection: string,
+  sectionKey: string | undefined,
+  sectionContext: string | undefined
+): FieldSpec {
   const jsonType = jsonTypeOf(token.type);
   return {
     ...token,
@@ -147,7 +169,8 @@ function enrichField(token: ParsedToken, before: string, currentSection: string,
     panelKind: panelKindOf(jsonType),
     label: deriveLabel(before, currentSection, token.path),
     section: currentSection || 'General',
-    sectionKey
+    sectionKey,
+    sectionContext
   };
 }
 
@@ -273,11 +296,24 @@ export function fieldKey(path: string): string {
 // Instrucciones por campo que se inyectan en el prompt del modelo: los campos que
 // el modelo debe rellenar (M y A). Los A se tratan igual que los M en el prompt;
 // su distinción (revisión humana) solo aplica después, en el panel.
+//
+// Los campos se agrupan por sección y cada grupo se encabeza con el nombre de la
+// sección y su contexto (el <!--context: ... --> de la plantilla, si lo hay), para
+// que el modelo rellene cada campo sabiendo a qué sección pertenece y con qué fin.
 export function buildFieldInstructionText(): string {
   const lines: string[] = [];
+  let lastSection: string | undefined;
   for (const field of getAllFields()) {
     if (field.role === 'H') {
       continue;
+    }
+    if (field.section !== lastSection) {
+      lastSection = field.section;
+      if (lines.length > 0) {
+        lines.push('');
+      }
+      const context = field.sectionContext ? ` — ${field.sectionContext}` : '';
+      lines.push(`Sección «${field.section}»${context}`);
     }
     lines.push(`- ${field.path}: ${field.instruction}`);
     // Los sub-campos de un campo env se describen junto a su padre, derivados

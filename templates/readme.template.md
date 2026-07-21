@@ -114,7 +114,7 @@
 ## 10. Documentación y enlaces
 <!--context: Reúne, a modo de índice, la documentación y los enlaces útiles del proyecto: manuales, repositorios, pipelines, dashboards y demás recursos. Incluye solo referencias que existan de verdad en el repositorio. -->
 
-- **Documentación**: [[ documentation_links.manuals_docs | M | list | Manuales, documentación técnica, guías o archivos relevantes del repositorio. ]]
+- **Documentación**: [[ documentation_links.manuals_docs | A | list | Manuales, documentación técnica, guías o archivos relevantes del repositorio. ]]
 - **Repositorios y CI/CD**: [[ documentation_links.repos_pipelines | H | list | Repositorios, pipelines, workflows o recursos de CI/CD del proyecto. ]]
 - **Enlaces y recursos**: [[ documentation_links.links_resources | H | list | Enlaces externos útiles: tickets y tableros de gestión, dashboards, paneles de monitorización u otros recursos. ]]
 
@@ -123,7 +123,7 @@
 
 <!--section:mejoras-->
 ## 11. Roadmap / mejoras
-<!--context: Recoge la evolución prevista del proyecto: mejoras planificadas, trabajo pendiente o elementos de roadmap. Usa solo planes explícitos que encuentres en el repositorio (TODOs, issues, notas de roadmap) y no propongas mejoras por tu cuenta. -->
+<!--context: Evolución prevista del proyecto. -->
 
 [[ roadmap | H | list | Mejoras futuras o elementos de roadmap.]]
 
@@ -132,7 +132,7 @@
 
 <!--section:contactos-->
 ## 12. Contactos y ownership
-<!--context: Identifica a las personas y equipos responsables del proyecto, para saber a quién acudir ante dudas, decisiones o incidencias. Indica solo nombres, equipos o contactos que aparezcan de forma explícita en el repositorio; si no constan, deja el campo vacío para que lo complete el usuario. -->
+<!--context: Personas y equipos responsables del proyecto. -->
 
 - **Product owner**: [[ contacts.product_owner | H | Product owner. ]]
 - **Responsable técnico**: [[ contacts.technical_owner | H | Responsable técnico.  ]]
@@ -143,7 +143,7 @@
 
 <!--section:proyectos-relacionados-->
 ## 13. Proyectos relacionados
-<!--context: Enlaza este proyecto con otros de su ecosistema: dependencias, proyectos hermanos o repositorios relacionados. Incluye solo los que estén realmente vinculados y mencionados en el repositorio. -->
+<!--context: Otros proyectos relacionados con este. -->
 
 [[ related_projects | H | list | Proyectos relacionados. ]]
 

@@ -11,10 +11,6 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [
-    "onCommand:readmeGeneratorAi.generateReadme",
-    "onCommand:readmeGeneratorAi.openLastTrace"
-  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
@@ -23,6 +19,12 @@
         "title": "Generate README",
         "category": "README Generator AI",
         "icon": "$(book)"
+      },
+      {
+        "command": "readmeGeneratorAi.updateReadme",
+        "title": "Update README",
+        "category": "README Generator AI",
+        "icon": "$(sync)"
       },
       {
         "command": "readmeGeneratorAi.openLastTrace",
@@ -37,12 +39,19 @@
           "command": "readmeGeneratorAi.generateReadme"
         },
         {
+          "command": "readmeGeneratorAi.updateReadme"
+        },
+        {
           "command": "readmeGeneratorAi.openLastTrace"
         }
       ],
       "explorer/title": [
         {
           "command": "readmeGeneratorAi.generateReadme",
+          "group": "navigation"
+        },
+        {
+          "command": "readmeGeneratorAi.updateReadme",
           "group": "navigation"
         }
       ]

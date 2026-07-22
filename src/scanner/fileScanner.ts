@@ -151,6 +151,15 @@ export async function readRawContent(
   }
 }
 
+// Estima tokens a partir del tamaño en disco. Un fichero mayor que
+// PRE_SELECTION_MAX_BYTES_PER_FILE se trunca a ese tamaño antes de enviarse al
+// modelo (readRawContent), así que para el presupuesto solo cuentan los bytes que
+// realmente llegan: usar el tamaño completo sobrestimaría un fichero grande y lo
+// empujaría a overflow aunque su versión truncada cupiera de sobra.
+export function estimateTokensFromSize(size: number): number {
+  return Math.ceil(Math.min(size, PRE_SELECTION_MAX_BYTES_PER_FILE) / 4);
+}
+
 export function splitByTokenBudget(
   files: CandidateFile[],
   maxTotalTokens: number
@@ -160,7 +169,7 @@ export function splitByTokenBudget(
   let totalTokens = 0;
 
   for (const file of files) {
-    const tokenEstimate = Math.ceil(file.size / 4);
+    const tokenEstimate = estimateTokensFromSize(file.size);
     if (totalTokens + tokenEstimate <= maxTotalTokens) {
       fitting.push(file);
       totalTokens += tokenEstimate;

@@ -141,11 +141,3 @@
 ---
 <!--/section-->
 
-<!--section:proyectos-relacionados-->
-## 13. Proyectos relacionados
-<!--context: Otros proyectos relacionados con este. -->
-
-[[ related_projects | H | list | Proyectos relacionados. ]]
-
----
-<!--/section-->

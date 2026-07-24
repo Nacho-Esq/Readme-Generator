@@ -108,8 +108,17 @@ function getEditHtml(
     ? `<section>
         <h2>Campos a revisar</h2>
         <p class="muted">El modelo rellenó estos campos, pero pueden estar incompletos o ser imprecisos. Revísalos y corrige lo que sea necesario antes de guardar.</p>
+        <div class="section-actions">
+          <button type="button" class="confirm" data-bulk-scope="review" data-bulk-action="confirm">Confirmar todo</button>
+          <button type="button" class="danger" data-bulk-scope="review" data-bulk-action="discard">Descartar todo</button>
+        </div>
         ${reviewFields.map((field) => fieldEditor(field, data, 'review')).join('')}
       </section>`
+    : '';
+  const pendingActions = pendingFields.length
+    ? `<div class="section-actions">
+        <button type="button" class="danger" data-bulk-scope="pending" data-bulk-action="discard">Descartar todo</button>
+      </div>`
     : '';
   const pendingContent = pendingFields.length
     ? pendingFields.map((field) => fieldEditor(field, data, 'pending')).join('')
@@ -132,7 +141,10 @@ function getEditHtml(
     section { border: 1px solid var(--vscode-panel-border); margin: 16px 0; padding: 12px; }
     h2 { margin-top: 0; font-size: 16px; }
     fieldset { border: 1px solid var(--vscode-panel-border); margin: 12px 0; padding: 12px; }
-    fieldset.omitted { display: none; }
+    fieldset.omitted, fieldset.confirmed { display: none; }
+    .field-actions { display: flex; gap: 8px; flex-shrink: 0; }
+    .section-actions { display: flex; gap: 8px; margin: 8px 0 12px; }
+    button.confirm { color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
     label { display: block; font-weight: 600; margin-bottom: 6px; }
     .section-prefix { color: var(--vscode-descriptionForeground); font-weight: 400; font-size: 11px; }
     textarea { width: 100%; box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); padding: 8px; font-family: var(--vscode-editor-font-family); min-height: 82px; resize: vertical; }
@@ -164,6 +176,7 @@ function getEditHtml(
       ${reviewSection}
       <section>
         <h2>Campos pendientes</h2>
+        ${pendingActions}
         ${pendingContent}
       </section>
     </div>
@@ -271,12 +284,55 @@ function getEditHtml(
       });
     });
 
+    function discardField(fieldset) {
+      const key = fieldset.getAttribute('data-field-key');
+      renderOptions.omitFields[key] = true;
+      fieldset.classList.remove('confirmed');
+      fieldset.classList.add('omitted');
+    }
+
+    // Confirmar cierra la caja pero mantiene el valor actual: no se omite el
+    // campo, así que collect() sigue leyendo su textarea (oculta) al guardar.
+    function confirmField(fieldset) {
+      const key = fieldset.getAttribute('data-field-key');
+      delete renderOptions.omitFields[key];
+      fieldset.classList.remove('omitted');
+      fieldset.classList.add('confirmed');
+    }
+
+    function isOpen(fieldset) {
+      return !fieldset.classList.contains('confirmed') && !fieldset.classList.contains('omitted');
+    }
+
     document.querySelectorAll('[data-action="discard"]').forEach((button) => {
       button.addEventListener('click', () => {
-        const fieldset = button.closest('fieldset');
-        const key = fieldset.getAttribute('data-field-key');
-        renderOptions.omitFields[key] = true;
-        fieldset.classList.add('omitted');
+        discardField(button.closest('fieldset'));
+        requestPreview();
+      });
+    });
+
+    document.querySelectorAll('[data-action="confirm"]').forEach((button) => {
+      button.addEventListener('click', () => {
+        confirmField(button.closest('fieldset'));
+        requestPreview();
+      });
+    });
+
+    // Botones de sección: actúan sobre las cajas que sigan abiertas en ese scope.
+    document.querySelectorAll('[data-bulk-action]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const scope = button.getAttribute('data-bulk-scope');
+        const action = button.getAttribute('data-bulk-action');
+        document.querySelectorAll('fieldset[data-field-scope="' + scope + '"]').forEach((fieldset) => {
+          if (!isOpen(fieldset)) {
+            return;
+          }
+          if (action === 'confirm') {
+            confirmField(fieldset);
+          } else {
+            discardField(fieldset);
+          }
+        });
         requestPreview();
       });
     });
@@ -325,13 +381,17 @@ function fieldEditor(field: PendingField, data: ReadmeData, variant: 'pending' |
   const hint = hintForKind(field.kind);
   const key = fieldKey(field.path);
   const classes = variant === 'review' ? 'review' : (isMissing ? 'missing' : '');
+  const confirmButton = '<button type="button" class="confirm" data-action="confirm">Confirmar</button>';
   const discardButton = '<button type="button" class="danger" data-action="discard">Descartar campo</button>';
   const placeholder = getPlaceholderText(field.path);
 
-  return `<fieldset class="${escapeAttribute(classes)}" data-field-key="${escapeAttribute(key)}">
+  return `<fieldset class="${escapeAttribute(classes)}" data-field-key="${escapeAttribute(key)}" data-field-scope="${escapeAttribute(variant)}">
     <div class="field-header">
       <label for="${escapeAttribute(field.path)}"><span class="section-prefix">${escapeHtml(field.sectionTitle)} →</span> ${escapeHtml(field.label)}</label>
-      ${discardButton}
+      <div class="field-actions">
+        ${confirmButton}
+        ${discardButton}
+      </div>
     </div>
     <textarea id="${escapeAttribute(field.path)}" placeholder="${escapeAttribute(placeholder)}">${escapeHtml(displayValue)}</textarea>
     ${hint ? `<div class="hint">${escapeHtml(hint)}</div>` : ''}

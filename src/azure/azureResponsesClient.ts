@@ -1,20 +1,7 @@
 import { ExtensionSettings, ExtractionResult, TokenUsage } from '../types';
 import { getExtractionJsonSchema } from '../prompt/promptBuilder';
-import { getUpdateJudgeJsonSchema } from '../prompt/updateJudgePrompt';
 import { getFileSelectionJsonSchema } from '../prompt/fileSelectionPrompt';
 import { FileSelectionResult } from '../scanner/types';
-
-// Un cambio real detectado por el juez del modo actualizar: qué campo cambió, qué
-// dice hoy el README y por qué es un cambio genuino (no una reformulación).
-export interface JudgeChange {
-  path: string;
-  current_readme_value: string;
-  reason: string;
-}
-
-export interface JudgeResult {
-  changes: JudgeChange[];
-}
 
 interface ResponsesApiOutputContent {
   type?: string;
@@ -106,11 +93,17 @@ export class AzureResponsesClient {
     };
   }
 
-  // Juez del modo actualizar: compara la info fresca del repo con el README actual
-  // y devuelve, campo a campo, solo los cambios materialmente nuevos.
-  async judgeUpdate(prompt: string): Promise<ApiCallResult<JudgeResult>> {
+  // Llamada genérica con json_schema estricto que devuelve el texto crudo de salida.
+  // La reutilizan pasos que definen su propio schema (p. ej. la inserción de ranking
+  // del actualizador) sin duplicar la fontanería de postResponse.
+  async callWithSchema(
+    prompt: string,
+    schemaName: string,
+    schema: object,
+    deploymentOverride?: string
+  ): Promise<ApiCallResult<string>> {
     const response = await this.postResponse({
-      model: this.settings.deployment,
+      model: deploymentOverride ?? this.settings.deployment,
       input: [
         {
           role: 'user',
@@ -125,36 +118,11 @@ export class AzureResponsesClient {
       text: {
         format: {
           type: 'json_schema',
-          name: 'readme_update_judgement',
+          name: schemaName,
           strict: true,
-          schema: getUpdateJudgeJsonSchema()
+          schema
         }
       }
-    });
-
-    return {
-      data: parseJudgeResult(extractResponseText(response)),
-      tokenUsage: extractTokenUsage(response)
-    };
-  }
-
-  // Reconciliación: aplica los cambios aprobados sobre un README existente. A
-  // diferencia de las otras llamadas, la salida es Markdown libre (no JSON), así
-  // que no se fija `text.format` con json_schema.
-  async reconcileReadme(prompt: string): Promise<ApiCallResult<string>> {
-    const response = await this.postResponse({
-      model: this.settings.deployment,
-      input: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'input_text',
-              text: prompt
-            }
-          ]
-        }
-      ]
     });
 
     return {
@@ -250,22 +218,6 @@ function parseExtractionResult(text: string): ExtractionResult {
   return {
     data: parsed.data,
     warnings: Array.isArray(parsed.warnings) ? parsed.warnings : []
-  };
-}
-
-function parseJudgeResult(text: string): JudgeResult {
-  const parsed = safeJsonParse<JudgeResult>(text) || safeJsonParse<JudgeResult>(extractJsonObject(text));
-  if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.changes)) {
-    throw new Error('Azure OpenAI response was not valid update-judgement JSON.');
-  }
-  return {
-    changes: parsed.changes
-      .filter((item): item is JudgeChange => Boolean(item) && typeof item.path === 'string')
-      .map((item) => ({
-        path: item.path,
-        current_readme_value: typeof item.current_readme_value === 'string' ? item.current_readme_value : '',
-        reason: typeof item.reason === 'string' ? item.reason : ''
-      }))
   };
 }
 

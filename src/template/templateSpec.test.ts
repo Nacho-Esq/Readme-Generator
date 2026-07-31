@@ -96,25 +96,22 @@ describe('parseTemplate', () => {
     expect(spec.fields.map((f) => f.path)).toEqual(['a', 'b']);
   });
 
-  it('respeta las secciones omitibles marcadas con <!--section:clave-->', () => {
+  it('respeta las secciones omitibles marcadas con un token de sección (rol S) en el encabezado', () => {
     const template = [
-      '<!--section:extra-->',
-      '## 5. Extra',
-      '[[ extra.field | M | text | algo ]]',
-      '<!--/section-->',
-      '[[ fuera.seccion | M | text | otro ]]'
+      '[[ fuera.seccion | M | text | otro ]]',
+      '## 5. Extra [[ extra | S | contexto de la sección ]]',
+      '[[ extra.field | M | text | algo ]]'
     ].join('\n');
     const spec = parseTemplate(template);
     expect(spec.byPath.get('extra.field')?.sectionKey).toBe('extra');
     expect(spec.byPath.get('fuera.seccion')?.sectionKey).toBeUndefined();
   });
 
-  it('asocia el contexto de <!--context: ... --> a los campos de la sección', () => {
+  it('asocia el contexto del token de sección (rol S) a los campos de la sección', () => {
     const template = [
-      '## 3. Experiencia de usuario',
-      '<!--context: Contexto de la sección UX. -->',
-      '- **Canales**: [[ usage.channels | M | csv | Canales ]]',
-      '- **Idiomas**: [[ usage.languages | M | csv | Idiomas ]]'
+      '## 3. Experiencia de usuario [[ experiencia | S | Contexto de la sección UX. ]]',
+      '### Canales [[ usage.channels | M | csv | Canales ]]',
+      '### Idiomas [[ usage.languages | M | csv | Idiomas ]]'
     ].join('\n');
     const spec = parseTemplate(template);
     expect(spec.byPath.get('usage.channels')?.sectionContext).toBe('Contexto de la sección UX.');
@@ -123,26 +120,20 @@ describe('parseTemplate', () => {
 
   it('el contexto de una sección no se filtra a la siguiente', () => {
     const template = [
-      '## 3. UX',
-      '<!--context: Contexto UX. -->',
-      '[[ ux.field | M | text | i ]]',
-      '## 4. Arquitectura',
-      '[[ arch.field | M | text | i ]]'
+      '## 3. UX [[ ux | S | Contexto UX. ]]',
+      '### Campo [[ ux.field | M | text | i ]]',
+      '## 4. Arquitectura [[ arquitectura | S | ]]',
+      '### Campo [[ arch.field | M | text | i ]]'
     ].join('\n');
     const spec = parseTemplate(template);
     expect(spec.byPath.get('ux.field')?.sectionContext).toBe('Contexto UX.');
     expect(spec.byPath.get('arch.field')?.sectionContext).toBeUndefined();
   });
 
-  it('colapsa un <!--context: ... --> escrito en varias líneas a una sola', () => {
-    const template = [
-      '## 3. UX',
-      '<!--context: Primera línea',
-      '   segunda línea. -->',
-      '[[ ux.field | M | text | i ]]'
-    ].join('\n');
-    const spec = parseTemplate(template);
-    expect(spec.byPath.get('ux.field')?.sectionContext).toBe('Primera línea segunda línea.');
+  it('un token de sección con instrucción vacía deja la sección sin contexto', () => {
+    const spec = parseTemplate('## 4. Arquitectura [[ arquitectura | S | ]]\n[[ arch.field | M | text | i ]]\n');
+    expect(spec.byPath.get('arch.field')?.sectionKey).toBe('arquitectura');
+    expect(spec.byPath.get('arch.field')?.sectionContext).toBeUndefined();
   });
 
   it('ignora comentarios HTML que no son marcadores de sección', () => {
@@ -285,12 +276,10 @@ describe('derivación de estructura de datos desde la plantilla', () => {
   it('buildFieldInstructionText agrupa los campos por sección e inyecta el contexto de cada una', () => {
     initTemplateSpec(
       [
-        '## 3. Experiencia de usuario',
-        '<!--context: Cómo interactúan las personas usuarias. -->',
-        '- **Canales**: [[ usage.channels | M | csv | Canales ]]',
-        '## 4. Arquitectura',
-        '<!--context: Estructura técnica interna. -->',
-        '- **Componentes**: [[ architecture.components | M | list | Componentes ]]'
+        '## 3. Experiencia de usuario [[ experiencia | S | Cómo interactúan las personas usuarias. ]]',
+        '### Canales [[ usage.channels | M | csv | Canales ]]',
+        '## 4. Arquitectura [[ arquitectura | S | Estructura técnica interna. ]]',
+        '### Componentes [[ architecture.components | M | list | Componentes ]]'
       ].join('\n')
     );
     const text = buildFieldInstructionText();

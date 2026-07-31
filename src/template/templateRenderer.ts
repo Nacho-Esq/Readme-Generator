@@ -11,9 +11,11 @@ interface RenderContext {
   byPath: Map<string, FieldSpec>;
 }
 
-const SECTION_REGEX = /<!--section:([\w-]+)-->([\s\S]*?)<!--\/section-->/g;
 const COMMENT_REGEX = /<!--[\s\S]*?-->/g;
 const BLOCK_TYPES = new Set<RenderType>(['list', 'env', 'code', 'raw']);
+// Encabezado con texto de etiqueta antes del token (p. ej. "### Diagrama lógico [[…]]").
+// El grupo 1 es el prefijo de heading ("### ") y el grupo 2, el texto de la etiqueta.
+const HEADING_FIELD_REGEX = /^(\s*#{1,6}\s+)(.*)$/;
 
 // Símbolo que marca un hueco pendiente de rellenar por el usuario. Debe destacar
 // claramente frente al texto real generado por el modelo.
@@ -55,13 +57,28 @@ export function renderTemplate(template: string, data: ReadmeData, renderOptions
   const { byPath } = getTemplateSpec();
   const ctx: RenderContext = { data, renderOptions, byPath };
 
-  // 1) Secciones omitibles: se elimina el bloque entero o solo sus marcadores.
-  const withSections = template.replace(SECTION_REGEX, (_match, key: string, inner: string) =>
-    renderOptions.omitSections[key] ? '' : inner
-  );
+  // 1) Secciones omitibles: una sección va desde su encabezado con token de sección
+  //    (rol S) hasta el siguiente encabezado de sección o el fin del fichero. Si el
+  //    usuario la omite, se descarta todo ese tramo (encabezado incluido); si no, se
+  //    conserva el encabezado quitándole el token de sección.
+  const kept: string[] = [];
+  let omitting = false;
+  for (const rawLine of template.split('\n')) {
+    const section = matchSectionToken(rawLine);
+    if (section) {
+      omitting = Boolean(renderOptions.omitSections[section.key]);
+      if (!omitting) {
+        kept.push(stripSectionToken(rawLine));
+      }
+      continue;
+    }
+    if (!omitting) {
+      kept.push(rawLine);
+    }
+  }
 
-  // 2) Comentarios de plantilla (cabecera explicativa, marcadores sueltos).
-  const withoutComments = withSections.replace(COMMENT_REGEX, '');
+  // 2) Comentarios sueltos (compatibilidad; la plantilla ya no los usa como marcadores).
+  const withoutComments = kept.join('\n').replace(COMMENT_REGEX, '');
 
   // 3) Tokens, línea a línea.
   const outputLines: string[] = [];
@@ -72,6 +89,24 @@ export function renderTemplate(template: string, data: ReadmeData, renderOptions
   const body = outputLines.join('\n');
   const cleaned = collapseBlankLines(body).replace(/^\n+/, '').trimEnd() + '\n';
   return renumberSections(cleaned);
+}
+
+// Si la línea es el encabezado de una sección omitible (lleva un token con rol S),
+// devuelve su clave de omisión. En caso contrario, undefined.
+function matchSectionToken(line: string): { key: string } | undefined {
+  for (const match of line.matchAll(TOKEN_REGEX)) {
+    const token = parseToken(match[1]);
+    if (token.role === 'S') {
+      return { key: token.path };
+    }
+  }
+  return undefined;
+}
+
+// Encabezado de sección sin su token: "## 4. Arquitectura [[ … | S | … ]]" -> "## 4. Arquitectura".
+// La renumeración posterior reajusta el número.
+function stripSectionToken(line: string): string {
+  return line.replace(TOKEN_REGEX, '').replace(/\s+$/, '');
 }
 
 // Renumera los encabezados de sección (`## N. Título`) de forma secuencial sobre el
@@ -117,6 +152,34 @@ function renderLine(line: string, ctx: RenderContext): string[] {
     // Hueco pendiente: si el valor es el centinela de relleno, en vez del dato se
     // muestra el marcador + la instrucción del campo (reutilizada de la plantilla).
     const note = isPlaceholderData(value) ? fillNote(field.instruction) : undefined;
+
+    // Campo escrito como subsección ("### Diagrama lógico [[…]]"): el texto del
+    // encabezado se emite como tal y el valor va debajo, en su propio bloque. Solo
+    // aplica si hay texto de etiqueta antes del token; un heading que es solo el
+    // token (p. ej. "# [[ project_name ]]") sigue la vía en línea de más abajo.
+    const headingField = matchHeadingField(before);
+    if (headingField) {
+      const out = [headingField, ''];
+      if (note) {
+        out.push(note);
+        return out;
+      }
+      if (type === 'image') {
+        const ref = typeof value === 'string' ? value.trim() : '';
+        if (!ref) {
+          return [];
+        }
+        const alt = typeof ctx.data.project_name === 'string' ? ctx.data.project_name : '';
+        out.push(`![${alt}](${ref})`);
+        return out;
+      }
+      if (BLOCK_TYPES.has(type)) {
+        out.push(...renderBlock(type, value, ''));
+        return out;
+      }
+      out.push(renderInline(type, value));
+      return out;
+    }
 
     if (type === 'image') {
       if (note) {
@@ -166,6 +229,24 @@ function renderLine(line: string, ctx: RenderContext): string[] {
     out = out.replace(match[0], replacement);
   }
   return [out];
+}
+
+// Si el texto que precede al token es un encabezado con etiqueta ("### Diagrama
+// lógico "), devuelve la línea de encabezado normalizada ("### Diagrama lógico",
+// sin dos puntos ni espacios finales). Si el heading no tiene etiqueta (solo el
+// token, p. ej. "# " antes de [[ project_name ]]) o no es un heading, devuelve
+// undefined y el campo se renderiza en línea.
+function matchHeadingField(before: string): string | undefined {
+  const match = before.match(HEADING_FIELD_REGEX);
+  if (!match) {
+    return undefined;
+  }
+  const label = match[2].replace(/[:\s]+$/, '');
+  if (!label) {
+    return undefined;
+  }
+  const hashes = match[1].trim();
+  return `${hashes} ${label}`;
 }
 
 // Marcador de un hueco pendiente de rellenar por el usuario, seguido de la

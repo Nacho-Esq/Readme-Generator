@@ -63,9 +63,9 @@ export class AzureResponsesClient {
     };
   }
 
-  async extractReadmeData(prompt: string): Promise<ApiCallResult<ExtractionResult>> {
+  async extractReadmeData(prompt: string, deploymentOverride?: string): Promise<ApiCallResult<ExtractionResult>> {
     const response = await this.postResponse({
-      model: this.settings.deployment,
+      model: deploymentOverride ?? this.settings.deployment,
       input: [
         {
           role: 'user',

@@ -95,42 +95,54 @@ describe('renderTemplate: omisión de campos y secciones', () => {
     expect(out).not.toContain('valor');
   });
 
-  it('omitSections elimina el bloque completo marcado con <!--section:clave-->', () => {
+  it('omitSections elimina la sección entera (encabezado con token S hasta el siguiente)', () => {
     const template = [
-      '## 1. Uno',
-      '<!--section:extra-->',
-      '## 2. Extra',
+      '## 1. Uno [[ uno | S | ctx ]]',
+      '[[ a.x | M | text | i ]]',
+      '## 2. Extra [[ extra | S | ctx ]]',
       '[[ extra.x | M | text | i ]]',
-      '<!--/section-->',
-      '## 3. Tres'
+      '## 3. Tres [[ tres | S | ctx ]]',
+      '[[ c.x | M | text | i ]]'
     ].join('\n');
-    const out = render(template, { extra: { x: 'valor' } }, {
+    const out = render(template, { a: { x: 'aa' }, extra: { x: 'valor' }, c: { x: 'cc' } }, {
       omitFields: {},
       omitSections: { extra: true }
     });
     expect(out).not.toContain('Extra');
     expect(out).not.toContain('valor');
+    expect(out).toContain('Uno');
+    expect(out).toContain('Tres');
   });
 
-  it('el contexto de sección <!--context: ... --> no aparece en el README renderizado', () => {
+  it('el contexto del token de sección (rol S) no aparece en el README renderizado', () => {
     const template = [
-      '## 3. Experiencia de usuario',
-      '<!--context: Este texto es solo para el modelo y no debe filtrarse al README. -->',
-      '- **Canales**: [[ usage.channels | M | csv | i ]]'
+      '## 3. Experiencia de usuario [[ experiencia | S | Este texto es solo para el modelo y no debe filtrarse al README. ]]',
+      '### Canales [[ usage.channels | M | csv | i ]]'
     ].join('\n');
     const out = render(template, { usage: { channels: 'web, CLI' } });
     expect(out).toContain('web, CLI');
     expect(out).not.toContain('solo para el modelo');
-    expect(out).not.toContain('context:');
+  });
+
+  it('el encabezado de sección se renderiza sin su token de sección', () => {
+    const template = ['## 4. Arquitectura [[ arquitectura | S | contexto ]]', '[[ arch.x | M | text | i ]]'].join('\n');
+    const out = render(template, { arch: { x: 'v' } });
+    expect(out).toContain('## 1. Arquitectura');
+    expect(out).not.toContain('[[');
+    expect(out).not.toContain('arquitectura | S');
+  });
+
+  it('un campo con etiqueta en su encabezado (### Label) se renderiza como subsección con el valor debajo', () => {
+    const template = '### Diagrama lógico [[ architecture.logical_flow | M | text | i ]]\n';
+    const out = render(template, { architecture: { logical_flow: 'contenido del diagrama' } });
+    expect(out).toBe('### Diagrama lógico\n\ncontenido del diagrama\n');
   });
 
   it('tras omitir una sección, los encabezados numerados se renumeran de forma consecutiva', () => {
     const template = [
-      '<!--section:extra-->',
-      '## 1. Extra',
+      '## 1. Extra [[ extra | S | ctx ]]',
       '[[ extra.x | M | text | i ]]',
-      '<!--/section-->',
-      '## 2. Segunda',
+      '## 2. Segunda [[ segunda | S | ctx ]]',
       '[[ y | M | text | i ]]'
     ].join('\n');
     const out = render(template, { extra: { x: 'v' }, y: 'w' }, {

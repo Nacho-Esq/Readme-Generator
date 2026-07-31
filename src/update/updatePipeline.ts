@@ -20,8 +20,10 @@
 
 import { AzureResponsesClient } from '../azure/azureResponsesClient';
 import { SelectedFile } from '../scanner/types';
-import { PanelKind } from '../template/templateSpec';
-import { ReadmeData } from '../types';
+import { getAllFields, PanelKind } from '../template/templateSpec';
+import { ReadmeData, TokenUsage } from '../types';
+import { buildReadmeFichasPrompt } from './readmeFichasPrompt';
+import { getFichaValue, isFichaEmpty } from './fichaUtils';
 
 // Resultado de comparar una ficha del README con la del código (paso 3).
 //  - 'same'                → dicen esencialmente lo mismo → NO se toca; se conserva
@@ -57,14 +59,44 @@ function notImplemented(step: string): Error {
   return new Error(`updatePipeline: ${step} aún no implementado (rediseño v4 en curso).`);
 }
 
-// Paso 1 — README → fichas (nano). Extrae, por campo de la plantilla, qué dice HOY
-// el README. La presencia (ficha no vacía) define el alcance.
+export interface ReadmeFichasResult {
+  fichas: ReadmeData;
+  warnings: string[];
+  tokenUsage: TokenUsage;
+}
+
+// Paso 1 — README → fichas. Extracción PURA: el modelo copia fielmente lo que el
+// README dice en cada campo (no redacta ni infiere). Reutiliza la extracción del
+// generador (`extractReadmeData`); `deployment` permite usar el modelo nano (barato).
+// La presencia (ficha no vacía) define el alcance de campos del README.
 export async function extractReadmeFichas(
-  _client: AzureResponsesClient,
-  _readmeText: string,
-  _workspaceName: string
-): Promise<ReadmeData> {
-  throw notImplemented('paso 1 (extractReadmeFichas)');
+  client: AzureResponsesClient,
+  readmeText: string,
+  workspaceName: string,
+  deployment?: string
+): Promise<ReadmeFichasResult> {
+  const prompt = buildReadmeFichasPrompt(readmeText, workspaceName);
+  const result = await client.extractReadmeData(prompt, deployment);
+  return {
+    fichas: result.data.data,
+    warnings: result.data.warnings,
+    tokenUsage: result.tokenUsage
+  };
+}
+
+// Cuenta los campos M/A que el README tiene con valor (no vacíos). Solo para la
+// validación/telemetría del Paso 1 (ver qué ha reconocido el modelo del README).
+export function countPopulatedReadmeFichas(fichas: ReadmeData): number {
+  let count = 0;
+  for (const field of getAllFields()) {
+    if (field.role !== 'M' && field.role !== 'A') {
+      continue;
+    }
+    if (!isFichaEmpty(getFichaValue(fichas, field.path), field.panelKind)) {
+      count++;
+    }
+  }
+  return count;
 }
 
 // Paso 2 — Código → fichas (modelo grande, única llamada cara). Reutiliza la

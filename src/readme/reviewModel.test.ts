@@ -10,14 +10,12 @@ import {
 } from './reviewModel';
 
 const SAMPLE_TEMPLATE = [
-  '<!--section:s1-->',
-  '## 1. Sección 1',
-  '- **Texto**: [[ texto | M | text | i ]]',
-  '- **Lista**: [[ lista | M | list | i ]]',
-  '- **Vars**: [[ vars | M | env | i ]]',
-  '<!--/section-->',
+  '## 1. Sección 1 [[ s1 | S | contexto de la sección ]]',
+  '### Texto [[ texto | M | text | i ]]',
+  '### Lista [[ lista | M | list | i ]]',
+  '### Vars [[ vars | M | env | i ]]',
   '## 2. Otra',
-  '- **Otro**: [[ otro | M | text | i ]]'
+  '### Otro [[ otro | M | text | i ]]'
 ].join('\n');
 
 beforeEach(() => {

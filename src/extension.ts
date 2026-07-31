@@ -29,6 +29,7 @@ import { EditFormPanel } from './ui/editFormPanel';
 import { AutoSensitiveFile, RedactFn, SecurityReviewPanel } from './ui/securityReviewPanel';
 import { loadRankingMemory, saveRankingMemory } from './pipeline/rankingMemory';
 import { appendNewFilesFallback, buildRankingInsertionPrompt, getRankingInsertionSchema, mergeNewFilesIntoRanking, parseRankingPlacements } from './pipeline/rankingInsertion';
+import { countPopulatedReadmeFichas, extractReadmeFichas } from './update/updatePipeline';
 import { ReadmeData } from './types';
 import { asErrorMessage, describePreSelectionError } from './utils/errors';
 import { countRedactions, isEnvFile, redactSecrets } from './utils/secretRedactor';
@@ -526,17 +527,34 @@ async function updateReadme(context: vscode.ExtensionContext): Promise<void> {
       return;
     }
 
-    // Validación del Paso 0: todavía no extraemos ni comparamos. Reportamos qué se
-    // ha leído y cuántos ficheros nuevos ha rankeado el nano frente a la memoria.
+    // Resumen del Paso 0 (informativo; el flujo continúa al Paso 1).
     const { reused, newlyRankedPaths, fullRerankForced, newDetectedCount } = ctx.reuseInfo;
-    const resumen = reused
-      ? `ranking reutilizado; ${newDetectedCount} nuevo(s) DETECTADO(s), ${newlyRankedPaths.length} colocado(s) por el nano`
+    const paso0 = reused
+      ? `ranking reutilizado (${newDetectedCount} nuevo(s), ${newlyRankedPaths.length} colocado(s))`
       : fullRerankForced
-        ? `demasiados ficheros nuevos (${newDetectedCount}): ranking completo fresco`
-        : 'ranking completo (sin memoria previa)';
+        ? `ranking completo (demasiados nuevos: ${newDetectedCount})`
+        : 'ranking completo';
+
+    // Paso 1 — README → fichas. Extracción PURA del README con el modelo nano.
+    const readmeText = await readFileText(target.uri);
+    const readmeFichas = await withStatusBar(
+      'README Generator AI: leyendo el README actual (fichas)...',
+      extractReadmeFichas(ctx.client, readmeText, workspaceFolder.name, getPreSelectionDeployment(settings))
+    );
+
+    // Validación del Paso 1: abrimos las fichas extraídas en una pestaña JSON para
+    // poder revisar campo a campo qué ha reconocido el modelo del README.
+    const fichasDoc = await vscode.workspace.openTextDocument({
+      content: JSON.stringify(readmeFichas.fichas, null, 2),
+      language: 'json'
+    });
+    await vscode.window.showTextDocument(fichasDoc, { preview: false });
+
+    const populated = countPopulatedReadmeFichas(readmeFichas.fichas);
     vscode.window.showInformationMessage(
-      `Paso 0 OK sobre ${target.label}: ${resumen}. ${ctx.selectedFiles.length} fichero(s) leído(s). ` +
-      `Pendientes los pasos 1-6 (extraer, comparar, verificar, panel, aplicar).`
+      `Paso 0: ${paso0}, ${ctx.selectedFiles.length} leído(s). ` +
+      `Paso 1 OK: ${populated} campo(s) con valor extraídos del README (revisa la pestaña JSON). ` +
+      `Pendientes los pasos 2-6.`
     );
   } catch (error) {
     vscode.window.showErrorMessage(`No se pudo actualizar el README: ${asErrorMessage(error)}`);

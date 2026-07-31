@@ -9,7 +9,10 @@
 // Roles: M = lo busca el modelo; H = lo rellena el humano (fuera de prompt y
 // schema); A = "ambos" = el modelo lo trata igual que un M (lo busca y rellena),
 // pero lo que rellene se marca para revisión humana en el panel antes de guardar.
-export type FieldRole = 'M' | 'H' | 'A';
+// S = "sección": no es un campo real, es el token que marca el encabezado de una
+// sección omitible y transporta su clave (path) y su contexto (instrucción). Los
+// tokens S no se convierten nunca en FieldSpec: se consumen al parsear.
+export type FieldRole = 'M' | 'H' | 'A' | 'S';
 
 export type RenderType = 'text' | 'csv' | 'list' | 'env' | 'code' | 'raw' | 'image';
 
@@ -62,10 +65,9 @@ export const ENV_DESCRIPTION_INSTRUCTION = 'Finalidad de la variable de entorno,
 // Token: [[ ruta | ROL | tipo? | instrucción ]]. El contenido no debe incluir "]]".
 export const TOKEN_REGEX = /\[\[([\s\S]*?)\]\]/g;
 const COMMENT_REGEX = /<!--[\s\S]*?-->/g;
-const SECTION_OPEN_SENTINEL = '@@SECTION:';
-const SECTION_CLOSE_SENTINEL = '@@ENDSECTION';
-const SECTION_CONTEXT_SENTINEL = '@@CONTEXT:';
 const HEADING_REGEX = /^#{1,6}\s+(\S.*?)\s*$/;
+const HEADING_PREFIX_REGEX = /^\s*#{1,6}\s+/;
+const BULLET_PREFIX_REGEX = /^\s*[-*]\s+/;
 const BOLD_REGEX = /\*\*(.+?)\*\*/;
 const SECTION_NUMBER_PREFIX = /^\d+\.\s*/;
 
@@ -77,7 +79,13 @@ export function parseToken(rawContent: string): ParsedToken {
   // campo "opcional": cualquier campo M/A puede quedar vacío para que lo complete
   // el usuario, y cualquier campo puede descartarse.
   const roleLetter = (parts[1] ?? 'M').toUpperCase();
-  const role: FieldRole = roleLetter.startsWith('H') ? 'H' : roleLetter.startsWith('A') ? 'A' : 'M';
+  const role: FieldRole = roleLetter.startsWith('H')
+    ? 'H'
+    : roleLetter.startsWith('A')
+      ? 'A'
+      : roleLetter.startsWith('S')
+        ? 'S'
+        : 'M';
 
   const rest = parts.slice(2);
   let type: RenderType | undefined;
@@ -94,45 +102,36 @@ export function parseTemplate(text: string): TemplateSpec {
   const fields: FieldSpec[] = [];
   const byPath = new Map<string, FieldSpec>();
 
-  // Convertir los marcadores de sección y de contexto en sentinels de una línea y
-  // luego quitar el resto de comentarios HTML (p. ej. la cabecera explicativa con
-  // su token de ejemplo), para no tomarlos como campos reales. El marcador de
-  // contexto se colapsa a una sola línea por si abarca varias en la plantilla.
-  const stripped = text
-    .replace(/<!--section:([\w-]+)-->/g, `${SECTION_OPEN_SENTINEL}$1`)
-    .replace(/<!--\/section-->/g, SECTION_CLOSE_SENTINEL)
-    .replace(/<!--context:([\s\S]*?)-->/g, (_match, ctx: string) => `${SECTION_CONTEXT_SENTINEL}${ctx.replace(/\s+/g, ' ').trim()}`)
-    .replace(COMMENT_REGEX, '');
-
   let currentSection = '';
   let currentSectionKey: string | undefined;
   let currentSectionContext: string | undefined;
 
-  for (const line of stripped.split('\n')) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith(SECTION_OPEN_SENTINEL)) {
-      currentSectionKey = trimmed.slice(SECTION_OPEN_SENTINEL.length);
-      continue;
-    }
-    if (trimmed === SECTION_CLOSE_SENTINEL) {
-      currentSectionKey = undefined;
-      continue;
-    }
-    if (trimmed.startsWith(SECTION_CONTEXT_SENTINEL)) {
-      currentSectionContext = trimmed.slice(SECTION_CONTEXT_SENTINEL.length).trim() || undefined;
-      continue;
-    }
-
+  for (const rawLine of text.split('\n')) {
+    // Se quitan los comentarios HTML sueltos por si la plantilla los llevara (ya no
+    // se usan como marcadores, pero no deben tomarse como campos reales).
+    const line = rawLine.replace(COMMENT_REGEX, '');
     const tokenMatches = [...line.matchAll(TOKEN_REGEX)];
 
-    // Un heading SIN token define una nueva sección. Si el heading contiene un
-    // token (p. ej. "# [[ project_name ]]"), no es un título de sección. Al cambiar
-    // de sección se descarta el contexto anterior: cada sección declara el suyo con
-    // su propio <!--context: ... --> bajo el encabezado.
+    // Encabezado de sección: un heading cuyo token tiene rol S. Transporta la clave
+    // de omisión (path) y el contexto de la sección (instrucción), que se inyecta en
+    // el prompt pero NO se renderiza. No genera campo. Al abrir sección se descarta
+    // el contexto anterior: cada sección declara el suyo en su propio token.
+    const sectionToken = findSectionToken(tokenMatches);
+    if (sectionToken) {
+      currentSection = sectionTitleFromHeading(line);
+      currentSectionKey = sectionToken.path || undefined;
+      currentSectionContext = sectionToken.instruction || undefined;
+      continue;
+    }
+
+    // Un heading SIN token también define una nueva sección (formato sin token S), y
+    // sale de cualquier sección omitible. Si el heading contiene un token de campo
+    // (p. ej. "# [[ project_name ]]"), no es un título de sección: es un campo.
     if (tokenMatches.length === 0) {
       const heading = line.match(HEADING_REGEX);
       if (heading) {
         currentSection = heading[1].replace(SECTION_NUMBER_PREFIX, '').trim();
+        currentSectionKey = undefined;
         currentSectionContext = undefined;
       }
       continue;
@@ -153,6 +152,27 @@ export function parseTemplate(text: string): TemplateSpec {
   }
 
   return { fields, byPath };
+}
+
+// Devuelve el token de sección (rol S) de una línea, si lo hay. El encabezado de
+// una sección es el único sitio donde aparece un token S.
+function findSectionToken(matches: RegExpMatchArray[]): ParsedToken | undefined {
+  for (const match of matches) {
+    const token = parseToken(match[1]);
+    if (token.role === 'S') {
+      return token;
+    }
+  }
+  return undefined;
+}
+
+// Título de sección a partir de la línea de encabezado: se quita el token, el nivel
+// de heading (##) y el número ("4. "), dejando solo el texto ("Arquitectura").
+function sectionTitleFromHeading(line: string): string {
+  const withoutToken = line.replace(TOKEN_REGEX, '').trim();
+  const heading = withoutToken.match(HEADING_REGEX);
+  const title = heading ? heading[1] : withoutToken.replace(HEADING_PREFIX_REGEX, '');
+  return title.replace(SECTION_NUMBER_PREFIX, '').trim();
 }
 
 function enrichField(
@@ -191,12 +211,23 @@ function panelKindOf(jsonType: JsonType): PanelKind {
   return jsonType === 'string[]' ? 'list' : 'text';
 }
 
-// Label del panel: la negrita que precede al token; si no hay, el título de la
-// sección; y como último recurso, la ruta formateada.
+// Label del panel: el texto que precede al token en su línea, ya venga como negrita
+// de un bullet ("- **Diagrama lógico**: [[…]]") o como texto de un encabezado
+// ("### Diagrama lógico [[…]]"). Se limpian los marcadores de heading/bullet, la
+// negrita y los dos puntos finales. Si no hay texto, se usa el título de la sección
+// y, como último recurso, la ruta formateada.
 function deriveLabel(before: string, currentSection: string, path: string): string {
-  const bold = before.match(BOLD_REGEX);
+  const cleaned = before
+    .replace(HEADING_PREFIX_REGEX, '')
+    .replace(BULLET_PREFIX_REGEX, '')
+    .trim();
+  const bold = cleaned.match(BOLD_REGEX);
   if (bold) {
     return bold[1].trim();
+  }
+  const text = cleaned.replace(/:\s*$/, '').trim();
+  if (text) {
+    return text;
   }
   if (currentSection) {
     return currentSection;

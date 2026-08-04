@@ -16,7 +16,8 @@ export function buildExtractionPrompt(
   files: SelectedFile[],
   workspaceName: string,
   repositoryMap: RepositoryMap,
-  nanoContext: NanoContext
+  nanoContext: NanoContext,
+  scopePaths?: Set<string>
 ): string {
   const fileBlocks = files.map((file) => {
     const nanoReason = nanoContext.nanoReasonsByPath.get(file.relativePath);
@@ -66,8 +67,10 @@ export function buildExtractionPrompt(
     '- Para variables de entorno, extrae nombres desde .env.example, config o código, y describe su propósito solo si es evidente.',
     '- Incluye advertencias breves para campos importantes que queden vacíos y requieran completar manualmente.',
     '',
-    'Instrucciones específicas por campo:',
-    buildFieldInstructionText(),
+    scopePaths
+      ? 'Instrucciones específicas por campo. IMPORTANTE: se te piden ÚNICAMENTE los campos listados a continuación (son los que el README existente ya documenta). Extrae solo esos; cualquier otro campo del formato de salida déjalo vacío.'
+      : 'Instrucciones específicas por campo:',
+    buildFieldInstructionText(scopePaths),
     '',
     `Nombre del workspace: ${workspaceName}`,
     '',

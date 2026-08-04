@@ -29,7 +29,10 @@ import { EditFormPanel } from './ui/editFormPanel';
 import { AutoSensitiveFile, RedactFn, SecurityReviewPanel } from './ui/securityReviewPanel';
 import { loadRankingMemory, saveRankingMemory } from './pipeline/rankingMemory';
 import { appendNewFilesFallback, buildRankingInsertionPrompt, getRankingInsertionSchema, mergeNewFilesIntoRanking, parseRankingPlacements } from './pipeline/rankingInsertion';
-import { countPopulatedReadmeFichas, extractReadmeFichas } from './update/updatePipeline';
+import { applyApprovedChanges, compareFichas, extractCodeFichas, extractHeadings, extractReadmeFichas, getPopulatedFichaPaths, reconcileSuspects } from './update/updatePipeline';
+import { formatFichaValue, isFichaEmpty, parseFichaText } from './update/fichaUtils';
+import { ApplyChange } from './update/applyPrompt';
+import { UpdateCard, UpdateReviewPanel } from './update/updateReviewPanel';
 import { ReadmeData } from './types';
 import { asErrorMessage, describePreSelectionError } from './utils/errors';
 import { countRedactions, isEnvFile, redactSecrets } from './utils/secretRedactor';
@@ -542,20 +545,129 @@ async function updateReadme(context: vscode.ExtensionContext): Promise<void> {
       extractReadmeFichas(ctx.client, readmeText, workspaceFolder.name, getPreSelectionDeployment(settings))
     );
 
-    // Validación del Paso 1: abrimos las fichas extraídas en una pestaña JSON para
-    // poder revisar campo a campo qué ha reconocido el modelo del README.
-    const fichasDoc = await vscode.workspace.openTextDocument({
-      content: JSON.stringify(readmeFichas.fichas, null, 2),
-      language: 'json'
-    });
-    await vscode.window.showTextDocument(fichasDoc, { preview: false });
+    // Alcance: SOLO los campos M/A que el README ya documenta (rellenos en el Paso 1).
+    // Los que el humano descartó al generar, o borró después, quedan fuera y NO se
+    // buscan en el código.
+    const scopePaths = getPopulatedFichaPaths(readmeFichas.fichas);
+    if (scopePaths.size === 0) {
+      vscode.window.showInformationMessage(
+        `${target.label} no tiene campos reconocibles de la plantilla; no hay nada que comparar.`
+      );
+      return;
+    }
 
-    const populated = countPopulatedReadmeFichas(readmeFichas.fichas);
-    vscode.window.showInformationMessage(
-      `Paso 0: ${paso0}, ${ctx.selectedFiles.length} leído(s). ` +
-      `Paso 1 OK: ${populated} campo(s) con valor extraídos del README (revisa la pestaña JSON). ` +
-      `Pendientes los pasos 2-6.`
+    // Paso 2 — Código → fichas (modelo grande), acotado a los campos en alcance, con
+    // las instrucciones de la plantilla.
+    const codeFichas = await withStatusBar(
+      `README Generator AI: analizando el código para ${scopePaths.size} campo(s)...`,
+      extractCodeFichas(
+        ctx.client,
+        ctx.selectedFiles,
+        workspaceFolder.name,
+        ctx.repositoryMap,
+        scopePaths,
+        { nanoReasonsByPath: ctx.nanoReasonsByPath, unreadFiles: ctx.unreadFiles }
+      )
     );
+
+    // Paso 3 — Comparar fichas (nano): por cada campo, same / readme_unsupported /
+    // code_differs. Los 'same' se descartan; el resto son sospechosos.
+    // Comparación con el modelo GRANDE (sin override): la entrada es pequeña (solo las
+    // fichas, sin código) y juzga mucho mejor "¿es lo mismo con otras palabras?".
+    const comparisons = await withStatusBar(
+      'README Generator AI: comparando el README con el código...',
+      compareFichas(ctx.client, scopePaths, readmeFichas.fichas, codeFichas.fichas)
+    );
+    const suspects = comparisons.filter((c) => c.kind !== 'same');
+
+    // Paso 4 — Reconciliar sospechosos (nano): propone el valor corregido y puede decidir
+    // 'keep' (segundo filtro de falsos positivos). Solo update/remove llegan al panel.
+    const verified = suspects.length > 0
+      ? await withStatusBar(
+          'README Generator AI: preparando propuestas de cambio...',
+          reconcileSuspects(ctx.client, suspects, getPreSelectionDeployment(settings))
+        )
+      : [];
+    const proposals = verified.filter((v) => v.recommendation !== 'keep');
+
+    // Volcado silencioso de las propuestas para inspección (debug); el panel es la UI.
+    const previewDir = vscode.Uri.joinPath(workspaceFolder.uri, '.readme-generator-ai');
+    await vscode.workspace.fs.createDirectory(previewDir);
+    await vscode.workspace.fs.writeFile(
+      vscode.Uri.joinPath(previewDir, 'last-update-preview.json'),
+      new TextEncoder().encode(JSON.stringify(proposals, null, 2))
+    );
+
+    if (proposals.length === 0) {
+      vscode.window.showInformationMessage(
+        `${target.label} ya está al día: no se detectaron cambios que proponer.`
+      );
+      return;
+    }
+
+    // Paso 5 — Panel de revisión: el humano decide por cada propuesta.
+    const cards: UpdateCard[] = proposals.map((p) => ({
+      path: p.path,
+      label: p.label,
+      section: p.section,
+      panelKind: p.panelKind,
+      recommendation: p.recommendation === 'remove' ? 'remove' : 'update',
+      currentText: formatFichaValue(p.readmeValue, p.panelKind),
+      proposedText: formatFichaValue(p.proposedValue, p.panelKind),
+      reason: p.reason
+    }));
+    const result = await UpdateReviewPanel.show(cards, context.extensionUri, target.label);
+    if (result.action !== 'save') {
+      return;
+    }
+
+    // Paso 6 — Traducir las decisiones del panel a cambios y aplicarlos sobre el README.
+    const proposalsByPath = new Map(proposals.map((p) => [p.path, p]));
+    const changes: ApplyChange[] = [];
+    for (const decision of result.resolved) {
+      if (decision.decision === 'keep') {
+        continue;
+      }
+      const proposal = proposalsByPath.get(decision.path);
+      if (!proposal) {
+        continue;
+      }
+      const newValue = decision.decision === 'edit'
+        ? parseFichaText(decision.value ?? '', proposal.panelKind)
+        : proposal.recommendation === 'remove'
+          ? (proposal.panelKind === 'text' ? '' : [])
+          : proposal.proposedValue;
+      changes.push({
+        section: proposal.section,
+        label: proposal.label,
+        action: isFichaEmpty(newValue, proposal.panelKind) ? 'remove' : 'update',
+        currentText: formatFichaValue(proposal.readmeValue, proposal.panelKind),
+        newText: formatFichaValue(newValue, proposal.panelKind)
+      });
+    }
+
+    if (changes.length === 0) {
+      vscode.window.showInformationMessage(`No hay cambios que aplicar en ${target.label}.`);
+      return;
+    }
+
+    const newMarkdown = await withStatusBar(
+      'README Generator AI: aplicando los cambios al README...',
+      applyApprovedChanges(ctx.client, readmeText, changes, getPreSelectionDeployment(settings))
+    );
+
+    // Guardarraíl estructural: los encabezados (#) no pueden haber cambiado.
+    if (extractHeadings(readmeText).join('\n') !== extractHeadings(newMarkdown).join('\n')) {
+      vscode.window.showErrorMessage(
+        `No se aplicaron los cambios: la operación habría alterado la estructura (encabezados) de ${target.label}. Inténtalo de nuevo.`
+      );
+      return;
+    }
+
+    await vscode.workspace.fs.writeFile(target.uri, new TextEncoder().encode(newMarkdown));
+    const updatedDoc = await vscode.workspace.openTextDocument(target.uri);
+    await vscode.window.showTextDocument(updatedDoc, { preview: false });
+    vscode.window.showInformationMessage(`${target.label} actualizado: ${changes.length} cambio(s) aplicado(s).`);
   } catch (error) {
     vscode.window.showErrorMessage(`No se pudo actualizar el README: ${asErrorMessage(error)}`);
   }

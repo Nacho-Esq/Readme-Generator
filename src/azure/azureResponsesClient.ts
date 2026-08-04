@@ -131,6 +131,30 @@ export class AzureResponsesClient {
     };
   }
 
+  // Llamada de texto libre (sin json_schema): devuelve el texto de salida tal cual. La
+  // usa la aplicación de cambios del actualizador (Paso 6), que produce Markdown, no JSON.
+  async completeText(prompt: string, deploymentOverride?: string): Promise<ApiCallResult<string>> {
+    const response = await this.postResponse({
+      model: deploymentOverride ?? this.settings.deployment,
+      input: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: prompt
+            }
+          ]
+        }
+      ]
+    });
+
+    return {
+      data: extractResponseText(response),
+      tokenUsage: extractTokenUsage(response)
+    };
+  }
+
   private async postResponse(body: object): Promise<ResponsesApiResponse> {
     const response = await fetch(this.buildResponsesUrl(), {
       method: 'POST',

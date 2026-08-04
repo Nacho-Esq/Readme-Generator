@@ -331,11 +331,16 @@ export function fieldKey(path: string): string {
 // Los campos se agrupan por sección y cada grupo se encabeza con el nombre de la
 // sección y su contexto (el <!--context: ... --> de la plantilla, si lo hay), para
 // que el modelo rellene cada campo sabiendo a qué sección pertenece y con qué fin.
-export function buildFieldInstructionText(): string {
+export function buildFieldInstructionText(includePaths?: Set<string>): string {
   const lines: string[] = [];
   let lastSection: string | undefined;
   for (const field of getAllFields()) {
     if (field.role === 'H') {
+      continue;
+    }
+    // Alcance opcional: si se pasa `includePaths`, solo se emiten esos campos (lo usa
+    // el actualizador para buscar en el código únicamente lo que el README documenta).
+    if (includePaths && !includePaths.has(field.path)) {
       continue;
     }
     if (field.section !== lastSection) {

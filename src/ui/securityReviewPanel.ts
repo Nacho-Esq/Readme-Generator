@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { getNonce } from './webviewHtml';
 
 export type AutoSensitiveDisposition = 'redact' | 'exclude';
 
@@ -104,15 +105,6 @@ function toRedactedFiles(value: unknown): Array<{ path: string; content: string 
     .filter((v): v is { path: string; content: string } =>
       v && typeof v.path === 'string' && typeof v.content === 'string')
     .map((v) => ({ path: v.path, content: v.content }));
-}
-
-function getNonce(): string {
-  let text = '';
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  for (let i = 0; i < 32; i++) {
-    text += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return text;
 }
 
 function buildHtml(input: SecurityReviewInput): string {

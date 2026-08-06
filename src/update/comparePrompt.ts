@@ -3,6 +3,9 @@
 // información o no. Diseñado para NO estar sesgado a marcar diferencias: por defecto
 // "same"; solo "differs" si hay información realmente distinta.
 
+import { extractJsonObject, safeJsonParse } from '../utils/json';
+import { indent } from '../utils/text';
+
 export interface CompareItem {
   path: string;
   label: string;
@@ -101,28 +104,4 @@ export function parseComparisons(text: string): Comparison[] {
       status: item.status === 'differs' ? 'differs' : 'same',
       detail: typeof item.detail === 'string' ? (item.detail as string) : ''
     }));
-}
-
-function indent(text: string): string {
-  return text
-    .split('\n')
-    .map((line) => `    ${line}`)
-    .join('\n');
-}
-
-function safeJsonParse(value: string): unknown {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return undefined;
-  }
-}
-
-function extractJsonObject(text: string): string {
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start === -1 || end === -1 || end <= start) {
-    return text;
-  }
-  return text.slice(start, end + 1);
 }

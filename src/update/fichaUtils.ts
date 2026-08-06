@@ -1,16 +1,12 @@
 import { PanelKind } from '../template/templateSpec';
+import { getValueAtPath } from '../utils/objectPath';
 
 // Utilidades sobre "fichas" (valores por campo de la plantilla). Compartidas por los
 // pasos del actualizador (extraer, comparar). Se leen valores por ruta (p. ej.
 // "usage.languages") y se decide si un valor está vacío según el tipo de panel.
 
 export function getFichaValue(data: unknown, path: string): unknown {
-  return path.split('.').reduce<unknown>((current, part) => {
-    if (current && typeof current === 'object' && part in current) {
-      return (current as Record<string, unknown>)[part];
-    }
-    return undefined;
-  }, data);
+  return getValueAtPath(data, path);
 }
 
 export function isFichaEmpty(value: unknown, panelKind: PanelKind): boolean {

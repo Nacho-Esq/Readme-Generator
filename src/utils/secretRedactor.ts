@@ -1,3 +1,5 @@
+import type { AutoSensitiveFile } from '../ui/securityReviewPanel';
+
 const ENV_FILE_PATTERN = /(?:^|[\\/])(?:\.env(?:\.[^.\\/]+)?|[^.\\/]+\.env)$/i;
 const ENV_EXAMPLE_PATTERN = /(?:^|[\\/])\.env\.(?:example|sample|template|dist)$/i;
 export const REDACTADO = '[REDACTADO]';
@@ -38,6 +40,25 @@ const TOKEN_PATTERNS: SecretPattern[] = [
 
 export function isEnvFile(relativePath: string): boolean {
   return ENV_FILE_PATTERN.test(relativePath) && !ENV_EXAMPLE_PATTERN.test(relativePath);
+}
+
+// Clasificación heurística previa al panel de seguridad: por su ruta, marca un fichero
+// como material criptográfico (excluir) o como posible portador de secretos (redactar).
+// Devuelve null si la ruta no dispara ningún patrón conocido.
+const KEY_MATERIAL_PATTERN = /(?:\.(?:pem|key|pfx|p12|keystore|jks|asc|gpg)|(?:^|\/)id_(?:rsa|dsa|ecdsa|ed25519))$/i;
+const CREDENTIAL_FILE_PATTERN = /(?:(?:^|\/)\.(?:npmrc|netrc|pgpass|htpasswd)|\.tfvars|(?:^|\/)(?:secrets?|credentials?)\.[^/]+)$/i;
+
+export function classifySensitiveFile(relativePath: string): AutoSensitiveFile | null {
+  if (KEY_MATERIAL_PATTERN.test(relativePath)) {
+    return { path: relativePath, suggested: 'exclude', reason: 'Material criptográfico / clave privada' };
+  }
+  if (isEnvFile(relativePath)) {
+    return { path: relativePath, suggested: 'redact', reason: 'Variables de entorno (.env)' };
+  }
+  if (CREDENTIAL_FILE_PATTERN.test(relativePath)) {
+    return { path: relativePath, suggested: 'redact', reason: 'Posibles credenciales' };
+  }
+  return null;
 }
 
 /**

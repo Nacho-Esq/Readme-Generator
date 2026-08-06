@@ -2,6 +2,7 @@ import { ExtensionSettings, ExtractionResult, TokenUsage } from '../types';
 import { getExtractionJsonSchema } from '../prompt/promptBuilder';
 import { getFileSelectionJsonSchema } from '../prompt/fileSelectionPrompt';
 import { FileSelectionResult } from '../scanner/types';
+import { extractJsonObject, safeJsonParse } from '../utils/json';
 
 interface ResponsesApiOutputContent {
   type?: string;
@@ -245,19 +246,3 @@ function parseExtractionResult(text: string): ExtractionResult {
   };
 }
 
-function extractJsonObject(text: string): string {
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start === -1 || end === -1 || end <= start) {
-    return text;
-  }
-  return text.slice(start, end + 1);
-}
-
-function safeJsonParse<T>(value: string): T | undefined {
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return undefined;
-  }
-}

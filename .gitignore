@@ -4,3 +4,4 @@ dist/
 .vscode-test/
 .env
 README.generated.md
+.readme-generator-ai/

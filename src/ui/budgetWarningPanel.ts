@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { UnreadFileInfo } from '../prompt/promptBuilder';
+import { getNonce } from './webviewHtml';
 
 interface PanelFileData {
   path: string;
@@ -57,15 +58,6 @@ export class BudgetWarningPanel {
       });
     });
   }
-}
-
-function getNonce(): string {
-  let text = '';
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  for (let i = 0; i < 32; i++) {
-    text += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return text;
 }
 
 function buildHtml(files: PanelFileData[], inputCostPerToken: number | null): string {

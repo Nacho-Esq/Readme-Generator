@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import { ReadmeData } from '../types';
 import { createDefaultRenderOptions, FILL_PLACEHOLDER, RenderOptions } from '../readme/reviewModel';
 import { fieldKey, FieldSpec, getTemplateSpec, parseToken, RenderType, TOKEN_REGEX } from './templateSpec';
+import { getValueAtPath } from '../utils/objectPath';
 
 interface RenderContext {
   data: ReadmeData;
@@ -147,7 +148,7 @@ function renderLine(line: string, ctx: RenderContext): string[] {
       return [];
     }
 
-    const value = getPathValue(ctx.data, field.path);
+    const value = getValueAtPath(ctx.data, field.path);
     const type = resolveType(field.type, value);
     // Hueco pendiente: si el valor es el centinela de relleno, en vez del dato se
     // muestra el marcador + la instrucción del campo (reutilizada de la plantilla).
@@ -216,7 +217,7 @@ function renderLine(line: string, ctx: RenderContext): string[] {
   for (const match of tokens) {
     const parsed = parseToken(match[1]);
     const field = ctx.byPath.get(parsed.path) ?? parsed;
-    const value = getPathValue(ctx.data, field.path);
+    const value = getValueAtPath(ctx.data, field.path);
     const type = resolveType(field.type, value);
     let replacement: string;
     if (type === 'image') {
@@ -316,15 +317,6 @@ function resolveType(declared: RenderType | undefined, value: unknown): RenderTy
 
 function stringify(value: unknown): string {
   return typeof value === 'string' ? value : value == null ? '' : String(value);
-}
-
-function getPathValue(value: unknown, dotPath: string): unknown {
-  return dotPath.split('.').reduce<unknown>((current, part) => {
-    if (current && typeof current === 'object' && part in current) {
-      return (current as Record<string, unknown>)[part];
-    }
-    return undefined;
-  }, value);
 }
 
 function collapseBlankLines(markdown: string): string {

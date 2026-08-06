@@ -84,27 +84,29 @@ export function buildFinalReadFileTrace(files: SelectedFile[]): FinalReadFileTra
   }));
 }
 
+// Guarda la traza en el almacenamiento privado de la extensión (`storageDir`, ya
+// resuelto por el llamador; ver src/storage/extensionStorage.ts), NO en el repo del
+// usuario. Escribe una versión JSON completa y una Markdown legible.
 export async function saveGenerationTrace(
-  workspaceFolder: vscode.WorkspaceFolder,
+  storageDir: vscode.Uri,
   trace: GenerationTrace
 ): Promise<SavedTracePaths> {
-  const traceDir = vscode.Uri.joinPath(workspaceFolder.uri, '.readme-generator-ai');
-  const jsonUri = vscode.Uri.joinPath(traceDir, 'last-run.json');
-  const markdownUri = vscode.Uri.joinPath(traceDir, 'last-run.md');
+  const jsonUri = vscode.Uri.joinPath(storageDir, 'last-run.json');
+  const markdownUri = vscode.Uri.joinPath(storageDir, 'last-run.md');
 
-  await vscode.workspace.fs.createDirectory(traceDir);
+  await vscode.workspace.fs.createDirectory(storageDir);
   await vscode.workspace.fs.writeFile(jsonUri, encode(JSON.stringify(trace, null, 2)));
   await vscode.workspace.fs.writeFile(markdownUri, encode(formatTraceMarkdown(trace)));
 
   return { jsonUri, markdownUri };
 }
 
-export async function openLastGenerationTrace(workspaceFolder: vscode.WorkspaceFolder): Promise<void> {
-  const jsonUri = vscode.Uri.joinPath(workspaceFolder.uri, '.readme-generator-ai', 'last-run.json');
+export async function openLastGenerationTrace(storageDir: vscode.Uri): Promise<void> {
+  const jsonUri = vscode.Uri.joinPath(storageDir, 'last-run.json');
   try {
     await vscode.workspace.fs.stat(jsonUri);
   } catch {
-    vscode.window.showWarningMessage('No hay ninguna traza de README Generator AI en este workspace.');
+    vscode.window.showWarningMessage('No hay ninguna traza de README Generator AI para este proyecto.');
     return;
   }
 
@@ -134,17 +136,6 @@ export function getInputCostPerToken(deploymentName: string): number | null {
   return entry ? entry.pricing.inputPerMillion / 1_000_000 : null;
 }
 
-function computeCost(deploymentName: string, usage: TokenUsage): string {
-  const entry = MODEL_PRICING.find((e) => deploymentName.includes(e.pattern));
-  if (!entry) {
-    return 'precio desconocido';
-  }
-  const cost =
-    (usage.inputTokens / 1_000_000) * entry.pricing.inputPerMillion +
-    (usage.outputTokens / 1_000_000) * entry.pricing.outputPerMillion;
-  return `€${cost.toFixed(4)}`;
-}
-
 function computeCostValue(deploymentName: string, usage: TokenUsage): number | null {
   const entry = MODEL_PRICING.find((e) => deploymentName.includes(e.pattern));
   if (!entry) {
@@ -154,6 +145,11 @@ function computeCostValue(deploymentName: string, usage: TokenUsage): number | n
     (usage.inputTokens / 1_000_000) * entry.pricing.inputPerMillion +
     (usage.outputTokens / 1_000_000) * entry.pricing.outputPerMillion
   );
+}
+
+function computeCost(deploymentName: string, usage: TokenUsage): string {
+  const cost = computeCostValue(deploymentName, usage);
+  return cost === null ? 'precio desconocido' : `€${cost.toFixed(4)}`;
 }
 
 // ---------------------------------------------------------------------------

@@ -20,7 +20,6 @@ export interface ExtensionSettings {
   templatePath: string;
   readDepth: ReadDepth;
   customTokenBudget?: number;
-  debugTrace: boolean;
 }
 
 export interface TokenUsage {

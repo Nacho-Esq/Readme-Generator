@@ -1,5 +1,6 @@
 import { CandidateFile, RepositoryMap, SelectedFile } from '../scanner/types';
 import { RankingEntry } from './rankingMemory';
+import { extractJsonObject, safeJsonParse } from '../utils/json';
 
 // Inserción de ficheros nuevos en un ranking existente (Paso 0b del actualizador).
 // El modelo NO reordena el ranking viejo: solo decide, por cada fichero nuevo, si
@@ -179,21 +180,4 @@ function formatRepositoryMapForInsertion(repositoryMap: RepositoryMap): string {
     null,
     2
   );
-}
-
-function safeJsonParse(value: string): unknown {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return undefined;
-  }
-}
-
-function extractJsonObject(text: string): string {
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start === -1 || end === -1 || end <= start) {
-    return text;
-  }
-  return text.slice(start, end + 1);
 }

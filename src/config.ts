@@ -13,8 +13,7 @@ export function getSettings(): ExtensionSettings {
     preSelectionDeployment: config.get<string>('preSelectionDeployment', '').trim(),
     templatePath: config.get<string>('templatePath', '').trim(),
     readDepth: normalizeReadDepth(config.get<string>('readDepth', 'básico')),
-    customTokenBudget: config.get<number>('readDepthCustomBudget'),
-    debugTrace: config.get<boolean>('debugTrace', true)
+    customTokenBudget: config.get<number>('readDepthCustomBudget')
   };
 }
 

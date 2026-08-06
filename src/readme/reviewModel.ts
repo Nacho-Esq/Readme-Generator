@@ -1,5 +1,6 @@
 import { ReadmeData } from '../types';
 import { FieldSpec, fieldKey, getAllFields } from '../template/templateSpec';
+import { getValueAtPath } from '../utils/objectPath';
 
 export const FILL_PLACEHOLDER = 'RELLENAR POR USUARIO';
 
@@ -36,11 +37,11 @@ export function analyzeReadmeData(data: ReadmeData): ReviewModel {
   });
 
   const missing = getAllFields()
-    .filter((field) => isMissingValue(getPathValue(data, field.path), field))
+    .filter((field) => isMissingValue(getValueAtPath(data, field.path), field))
     .map(describe);
 
   const reviewNeeded = getAllFields()
-    .filter((field) => field.role === 'A' && !isMissingValue(getPathValue(data, field.path), field))
+    .filter((field) => field.role === 'A' && !isMissingValue(getValueAtPath(data, field.path), field))
     .map(describe);
 
   return { missing, reviewNeeded };
@@ -53,7 +54,7 @@ export function prepareDataForReview(data: ReadmeData, renderOptions: RenderOpti
     if (renderOptions.omitFields[key]) {
       continue;
     }
-    if (isMissingValue(getPathValue(next, field.path), field)) {
+    if (isMissingValue(getValueAtPath(next, field.path), field)) {
       setPathValue(next, field.path, placeholderValue(field));
     }
   }
@@ -74,11 +75,11 @@ export function completeRenderOptions(data: ReadmeData, renderOptions: RenderOpt
 
     const hasVisibleData = sectionFields.some((field) => {
       const key = fieldKey(field.path);
-      return !renderOptions.omitFields[key] && !isMissingValue(getPathValue(data, field.path), field);
+      return !renderOptions.omitFields[key] && !isMissingValue(getValueAtPath(data, field.path), field);
     });
     const allMissingAreOmitted = sectionFields.every((field) => {
       const key = fieldKey(field.path);
-      return renderOptions.omitFields[key] || !isMissingValue(getPathValue(data, field.path), field);
+      return renderOptions.omitFields[key] || !isMissingValue(getValueAtPath(data, field.path), field);
     });
 
     omitSections[sectionKey] = !hasVisibleData && allMissingAreOmitted;
@@ -122,15 +123,6 @@ function isMissingValue(value: unknown, field: FieldSpec): boolean {
 
 function isBlank(value: unknown): boolean {
   return typeof value !== 'string' || value.trim().length === 0;
-}
-
-function getPathValue(value: unknown, path: string): unknown {
-  return path.split('.').reduce<unknown>((current, part) => {
-    if (current && typeof current === 'object' && part in current) {
-      return (current as Record<string, unknown>)[part];
-    }
-    return undefined;
-  }, value);
 }
 
 function setPathValue(target: unknown, path: string, value: unknown): void {

@@ -27,7 +27,8 @@ import {
 import { BudgetWarningPanel } from './ui/budgetWarningPanel';
 import { EditFormPanel } from './ui/editFormPanel';
 import { AutoSensitiveFile, RedactFn, SecurityReviewPanel } from './ui/securityReviewPanel';
-import { loadRankingMemory, saveRankingMemory } from './pipeline/rankingMemory';
+import { hashContent, loadRankingMemory, saveRankingMemory } from './pipeline/rankingMemory';
+import { resolveStorageDir } from './storage/extensionStorage';
 import { appendNewFilesFallback, buildRankingInsertionPrompt, getRankingInsertionSchema, mergeNewFilesIntoRanking, parseRankingPlacements } from './pipeline/rankingInsertion';
 import { applyApprovedChanges, compareFichas, extractCodeFichas, extractHeadings, extractReadmeFichas, getPopulatedFichaPaths, reconcileSuspects } from './update/updatePipeline';
 import { formatFichaValue, isFichaEmpty, parseFichaText } from './update/fichaUtils';
@@ -35,7 +36,7 @@ import { ApplyChange } from './update/applyPrompt';
 import { UpdateCard, UpdateReviewPanel } from './update/updateReviewPanel';
 import { ReadmeData } from './types';
 import { asErrorMessage, describePreSelectionError } from './utils/errors';
-import { countRedactions, isEnvFile, redactSecrets } from './utils/secretRedactor';
+import { classifySensitiveFile, countRedactions, redactSecrets } from './utils/secretRedactor';
 
 let statusBarItem: vscode.StatusBarItem | undefined;
 let updateStatusBarItem: vscode.StatusBarItem | undefined;
@@ -52,9 +53,14 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(updateCommand);
 
   const openTraceCommand = vscode.commands.registerCommand('readmeGeneratorAi.openLastTrace', () =>
-    openLastTrace()
+    openLastTrace(context)
   );
   context.subscriptions.push(openTraceCommand);
+
+  const openDataCommand = vscode.commands.registerCommand('readmeGeneratorAi.openGeneratedData', () =>
+    openGeneratedData(context)
+  );
+  context.subscriptions.push(openDataCommand);
 
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   statusBarItem.text = '$(book) Generate README';
@@ -98,14 +104,23 @@ interface RepositoryContext {
   templatePath: string;
   nanoReasonsByPath: Map<string, string>;
   unreadFiles: UnreadFileInfo[];
-  nanoWarnings: string[];
+  // Advertencias útiles para el USUARIO que genera el README: huecos de cobertura del
+  // repo que dejan secciones incompletas (p. ej. falta de fichero de entorno). Se
+  // muestran en el panel. Las emite el nano de selección con el prompt de cobertura.
+  userWarnings: string[];
+  // Advertencias de PROCESO/diagnóstico (rutas fuera del inventario, ficheros nuevos
+  // descartados, re-ranking forzado...). Solo interesan al desarrollador de la
+  // extensión: van a la traza, nunca al panel del usuario.
+  processWarnings: string[];
   trace: GenerationTrace;
-  debugTrace: boolean;
+  // Carpeta de datos privada de la extensión para este proyecto (fuera del repo).
+  // undefined solo si no hay workspace abierto; el guardado se salta con seguridad.
+  storageDir: vscode.Uri | undefined;
   // Info de reutilización de ranking (Paso 0 del actualizador). En generación:
   // reused=false, newlyRankedPaths=[], fullRerankForced=false, newDetectedCount=0.
   // newDetectedCount = ficheros detectados como nuevos; newlyRankedPaths = los que el
   // nano decidió colocar (los demás los descartó). Distinguirlos es clave para depurar.
-  reuseInfo: { reused: boolean; newlyRankedPaths: string[]; fullRerankForced: boolean; newDetectedCount: number };
+  reuseInfo: { reused: boolean; newlyRankedPaths: string[]; fullRerankForced: boolean; newDetectedCount: number; changedDetectedCount: number };
 }
 
 // Umbral de ficheros nuevos por encima del cual el actualizador descarta la inserción
@@ -118,6 +133,8 @@ const FULL_RERANK_NEW_RATIO = 0.4;
 interface ReuseRanking {
   previousSelection: FileSelectionItem[];
   knownPaths: Set<string>;
+  // Hash de contenido por fichero de la pasada anterior, para detectar cambiados.
+  previousHashes: Map<string, string>;
 }
 
 // Escanea el repo, aplica la capa de seguridad, resuelve el ranking (nano completo
@@ -142,6 +159,8 @@ async function prepareRepositoryContext(
   }
 
   const client = new AzureResponsesClient(settings);
+  // Carpeta de datos privada de la extensión para este proyecto (fuera del repo).
+  const storageDir = resolveStorageDir(context, workspaceFolder);
   const tokenBudget = getReadDepthTokenBudget(settings.readDepth, settings.customTokenBudget);
   const trace = createGenerationTrace(
     workspaceFolder.name,
@@ -207,21 +226,39 @@ async function prepareRepositoryContext(
   // --- Resolución del ranking: nano completo o reutilizado (solo ficheros nuevos) ---
   let rankedFiles: CandidateFile[];
   let nanoReasonsByPath: Map<string, string>;
-  let nanoWarnings: string[];
+  let userWarnings: string[];
+  let processWarnings: string[];
+
+  // Hash de contenido de cada candidato: permite guardar la "foto" del proyecto para
+  // que la próxima pasada sepa qué ficheros han cambiado (no solo cuáles son nuevos).
+  const currentHashes = new Map(allCandidateFiles.map((f) => [f.relativePath, hashContent(f.content)]));
 
   let reused = false;
   let newlyRankedPaths: string[] = [];
   const reuse = options?.reuseRanking;
+  // NUEVOS: nunca vistos. CAMBIADOS: vistos pero con hash distinto → hay que re-evaluar su
+  // importancia (un fichero que antes no aportaba puede aportar ahora, o viceversa). Ambos
+  // se vuelven a colocar en el ranking.
   const newCandidates = reuse
     ? allCandidateFiles.filter((f) => !reuse.knownPaths.has(f.relativePath))
     : [];
-  // Si demasiados ficheros son nuevos (p. ej. movimiento masivo de carpetas), la
-  // inserción incremental deja de tener sentido y podría degradar el ranking: en su
-  // lugar se hace un ranking completo fresco, como el del generador.
+  const changedCandidates = reuse
+    ? allCandidateFiles.filter(
+        (f) =>
+          reuse.knownPaths.has(f.relativePath) &&
+          reuse.previousHashes.has(f.relativePath) &&
+          reuse.previousHashes.get(f.relativePath) !== currentHashes.get(f.relativePath)
+      )
+    : [];
+  const toPlace = [...newCandidates, ...changedCandidates];
+  const changedPaths = new Set(changedCandidates.map((f) => f.relativePath));
+  // Si hay que recolocar demasiados ficheros (nuevos + cambiados; p. ej. movimiento masivo
+  // o refactor grande), la inserción incremental deja de tener sentido: se hace un ranking
+  // completo fresco, como el del generador.
   const tooManyNew =
     reuse !== undefined &&
     allCandidateFiles.length > 0 &&
-    newCandidates.length / allCandidateFiles.length > FULL_RERANK_NEW_RATIO;
+    toPlace.length / allCandidateFiles.length > FULL_RERANK_NEW_RATIO;
 
   if (reuse && !tooManyNew) {
     reused = true;
@@ -230,41 +267,46 @@ async function prepareRepositoryContext(
       sendableInventory
     );
     const reasons = new Map<string, string>(reuse.previousSelection.map((item) => [item.path, item.reason]));
-    let ranking = previous.ranking;
+    // Base FIJA del ranking: lo previo MENOS los ficheros cambiados (esos se recolocan por
+    // si su importancia ha cambiado). Los no tocados conservan su orden.
+    const baseSelection = reuse.previousSelection.filter((item) => !changedPaths.has(item.path));
+    let ranking = previous.ranking.filter((f) => !changedPaths.has(f.relativePath));
+    // En reutilización el nano solo COLOCA ficheros (nuevos + cambiados) en el ranking
+    // base; no hay análisis de cobertura del README, así que todo lo que surge es proceso.
     let warnings = previous.warnings;
 
-    if (newCandidates.length > 0) {
-      // Paso 0b: el nano coloca los ficheros nuevos en su posición respecto al ranking
-      // existente (orden viejo FIJO); la fusión es mecánica.
-      const insertionPrompt = buildRankingInsertionPrompt(reuse.previousSelection, newCandidates, repositoryMap);
+    if (toPlace.length > 0) {
+      // Paso 0b: el nano coloca los ficheros nuevos Y cambiados en su posición respecto al
+      // ranking base (orden de los no tocados FIJO); la fusión es mecánica.
+      const insertionPrompt = buildRankingInsertionPrompt(baseSelection, toPlace, repositoryMap);
       trace.selectionPrompt = insertionPrompt;
       try {
         const nanoResult = await withStatusBar(
-          `README Generator AI: colocando ${newCandidates.length} archivo(s) nuevo(s) en el ranking...`,
+          `README Generator AI: recolocando ${toPlace.length} archivo(s) (nuevos + cambiados) en el ranking...`,
           client.callWithSchema(insertionPrompt, 'ranking_insertion', getRankingInsertionSchema(), preSelectionDeployment)
         );
         const placements = parseRankingPlacements(nanoResult.data);
-        const merged = mergeNewFilesIntoRanking(ranking, newCandidates, placements);
+        const merged = mergeNewFilesIntoRanking(ranking, toPlace, placements);
         ranking = merged.ranking;
         newlyRankedPaths = merged.insertedPaths;
         for (const placement of placements) {
           if (placement.decision === 'keep') {
             reasons.set(placement.path, placement.reason);
           } else {
-            warnings = warnings.concat(`Nano descartó el fichero nuevo ${placement.path}: ${placement.reason || 'sin razón'}`);
+            warnings = warnings.concat(`Nano descartó el fichero ${placement.path}: ${placement.reason || 'sin razón'}`);
           }
         }
         warnings = warnings.concat(merged.warnings);
         trace.nanoTokenUsage = nanoResult.tokenUsage;
       } catch (error) {
-        // Fallback seguro: si la colocación falla, los nuevos se añaden al final.
-        const appended = appendNewFilesFallback(ranking, newCandidates);
+        // Fallback seguro: si la colocación falla, se añaden al final.
+        const appended = appendNewFilesFallback(ranking, toPlace);
         ranking = appended.ranking;
         newlyRankedPaths = appended.insertedPaths;
-        warnings = warnings.concat(`No se pudieron colocar los archivos nuevos, se añaden al final: ${asErrorMessage(error)}`);
+        warnings = warnings.concat(`No se pudieron recolocar los archivos, se añaden al final: ${asErrorMessage(error)}`);
       }
     } else {
-      trace.selectionPrompt = '(ranking reutilizado de la generación previa; sin archivos nuevos)';
+      trace.selectionPrompt = '(ranking reutilizado de la generación previa; sin archivos nuevos ni cambiados)';
     }
 
     if (ranking.length === 0) {
@@ -274,7 +316,8 @@ async function prepareRepositoryContext(
 
     rankedFiles = ranking;
     nanoReasonsByPath = reasons;
-    nanoWarnings = warnings;
+    userWarnings = [];
+    processWarnings = warnings;
     trace.llmSelection = ranking.map((f) => ({ path: f.relativePath, reason: reasons.get(f.relativePath) ?? '' }));
   } else {
     const contentPrompt = buildContentSelectionPrompt(repositoryMap, allCandidateFiles);
@@ -302,11 +345,15 @@ async function prepareRepositoryContext(
     trace.nanoTokenUsage = nanoResult.tokenUsage;
     rankedFiles = validated.ranking;
     nanoReasonsByPath = new Map(nanoResult.data.selectedFiles.map((item) => [item.path, item.reason]));
-    nanoWarnings = nanoResult.data.warnings.concat(validated.warnings);
+    // Del nano de selección: advertencias de cobertura del README → usuario.
+    userWarnings = nanoResult.data.warnings;
+    // De la validación (rutas fuera del inventario): diagnóstico → proceso.
+    processWarnings = validated.warnings;
     if (tooManyNew) {
-      // Re-ranking completo intencionado por el umbral (había memoria, pero demasiados nuevos).
-      nanoWarnings = nanoWarnings.concat(
-        `Más del ${Math.round(FULL_RERANK_NEW_RATIO * 100)}% de los ficheros son nuevos; se hizo un ranking completo en lugar de incremental.`
+      // Re-ranking completo intencionado por el umbral (había memoria, pero demasiados
+      // ficheros nuevos o cambiados).
+      processWarnings = processWarnings.concat(
+        `Más del ${Math.round(FULL_RERANK_NEW_RATIO * 100)}% de los ficheros son nuevos o cambiados; se hizo un ranking completo en lugar de incremental.`
       );
     }
   }
@@ -356,8 +403,9 @@ async function prepareRepositoryContext(
     return undefined;
   }
   trace.finalReadFiles = buildFinalReadFileTrace(selectedFiles);
-  trace.warnings = nanoWarnings;
-  await saveTraceIfEnabled(workspaceFolder, settings.debugTrace, trace);
+  // La traza (depuración) conserva TODO: primero proceso, luego cobertura de usuario.
+  trace.warnings = processWarnings.concat(userWarnings);
+  await saveTrace(storageDir, trace);
 
   const readPaths = new Set(selectedFiles.map((f) => f.relativePath));
   const unreadFiles = rankedFiles
@@ -368,19 +416,22 @@ async function prepareRepositoryContext(
       estimatedTokens: estimateTokensFromSize(f.size)
     }));
 
-  // Memoria de ranking: se escribe SIEMPRE (independiente de debugTrace), tanto en
-  // generación como en actualización. seenPaths = inventario considerable actual (lo
-  // que pasa el filtro heurístico y no se excluye por seguridad); así los ficheros
-  // borrados desaparecen también de la memoria de forma natural.
-  try {
-    await saveRankingMemory(workspaceFolder, {
-      workspaceName: workspaceFolder.name,
-      mode: reuse ? 'update' : 'generate',
-      ranking: rankedFiles.map((f) => ({ path: f.relativePath, reason: nanoReasonsByPath.get(f.relativePath) ?? '' })),
-      seenPaths: sendableInventory.map((f) => f.relativePath)
-    });
-  } catch (error) {
-    vscode.window.showWarningMessage(`No se pudo guardar la memoria de ranking: ${asErrorMessage(error)}`);
+  // Memoria de ranking: se escribe SIEMPRE, tanto en generación como en
+  // actualización. seenPaths = inventario considerable actual (lo que pasa el filtro
+  // heurístico y no se excluye por seguridad); así los ficheros borrados desaparecen
+  // también de la memoria de forma natural.
+  if (storageDir) {
+    try {
+      await saveRankingMemory(storageDir, {
+        workspaceName: workspaceFolder.name,
+        mode: reuse ? 'update' : 'generate',
+        ranking: rankedFiles.map((f) => ({ path: f.relativePath, reason: nanoReasonsByPath.get(f.relativePath) ?? '' })),
+        seenPaths: sendableInventory.map((f) => f.relativePath),
+        fileHashes: Object.fromEntries(currentHashes)
+      });
+    } catch (error) {
+      vscode.window.showWarningMessage(`No se pudo guardar la memoria de ranking: ${asErrorMessage(error)}`);
+    }
   }
 
   const renderer = new TemplateRenderer(context.extensionUri);
@@ -395,10 +446,11 @@ async function prepareRepositoryContext(
     templatePath,
     nanoReasonsByPath,
     unreadFiles,
-    nanoWarnings,
+    userWarnings,
+    processWarnings,
     trace,
-    debugTrace: settings.debugTrace,
-    reuseInfo: { reused, newlyRankedPaths, fullRerankForced: tooManyNew, newDetectedCount: newCandidates.length }
+    storageDir,
+    reuseInfo: { reused, newlyRankedPaths, fullRerankForced: tooManyNew, newDetectedCount: newCandidates.length, changedDetectedCount: changedCandidates.length }
   };
 }
 
@@ -432,9 +484,12 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
     );
     ctx.trace.mainModelTokenUsage = extractionResult.tokenUsage;
     const finalReadmeData = extractionResult.data.data;
-    const finalWarnings = ctx.nanoWarnings.concat(extractionResult.data.warnings);
-    ctx.trace.warnings = finalWarnings;
-    await saveTraceIfEnabled(workspaceFolder, ctx.debugTrace, ctx.trace);
+    // Panel: solo lo accionable por el usuario (cobertura del nano + avisos de contenido
+    // del modelo grande). Las advertencias de proceso NO se muestran aquí.
+    const userWarnings = ctx.userWarnings.concat(extractionResult.data.warnings);
+    // Traza (depuración): TODO, incluidas las de proceso.
+    ctx.trace.warnings = ctx.processWarnings.concat(userWarnings);
+    await saveTrace(ctx.storageDir, ctx.trace);
 
     const review = analyzeReadmeData(finalReadmeData);
     const initialRenderOptions = completeRenderOptions(finalReadmeData, createDefaultRenderOptions());
@@ -444,7 +499,7 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
     const editResult = await EditFormPanel.show(
       initialReviewData,
       initialMarkdown,
-      finalWarnings,
+      userWarnings,
       context.extensionUri,
       review,
       initialRenderOptions,
@@ -466,13 +521,26 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
 
     const document = await vscode.workspace.openTextDocument(outputUri);
     await vscode.window.showTextDocument(document, { preview: false });
-    vscode.window.showInformationMessage('README.generated.md generado correctamente.');
+    void notifyGeneratedWithTrace('README.generated.md generado correctamente.', ctx.storageDir);
   } catch (error) {
     vscode.window.showErrorMessage(`No se pudo generar el README: ${asErrorMessage(error)}`);
   }
 }
 
-// Modo actualizar (REDISEÑO v4 — en reconstrucción, fase a fase).
+// Aviso de éxito con acceso directo a la traza. No bloquea el flujo (fire-and-forget):
+// el README ya está escrito y abierto; el botón solo abre la traza si el usuario quiere.
+async function notifyGeneratedWithTrace(message: string, storageDir: vscode.Uri | undefined): Promise<void> {
+  if (!storageDir) {
+    vscode.window.showInformationMessage(message);
+    return;
+  }
+  const pick = await vscode.window.showInformationMessage(message, 'Ver traza');
+  if (pick === 'Ver traza') {
+    await openLastGenerationTrace(storageDir);
+  }
+}
+
+// Modo actualizar.
 //
 // Objetivo: EDITAR el README existente, nunca regenerarlo. Se comparan las FICHAS
 // (el valor por campo de la plantilla) del README contra las del código en dos
@@ -480,7 +548,7 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
 // panel y solo se parchean los campos aprobados (con guardarraíl de diff). El
 // generador NO se toca; la lógica del actualizador vive aislada en src/update/.
 //
-// Tubería (se implementa paso a paso; stubs en src/update/updatePipeline.ts):
+// Tubería (pasos puros en src/update/updatePipeline.ts):
 //   Paso 0  Ranking           reutiliza traza + nano solo para ficheros nuevos.
 //   Paso 1  README → fichas    (nano)      extractReadmeFichas
 //   Paso 2  Código → fichas     (grande)    extractCodeFichas
@@ -519,7 +587,8 @@ async function updateReadme(context: vscode.ExtensionContext): Promise<void> {
     // Paso 0 — Lectura del repo con ranking reutilizado (o completo si no hay
     // memoria previa). Reutiliza el filtro heurístico + la capa de seguridad del
     // generador vía prepareRepositoryContext, y deja el spec de plantilla listo.
-    const previous = await loadPreviousRanking(workspaceFolder);
+    const storageDir = resolveStorageDir(context, workspaceFolder);
+    const previous = storageDir ? await loadPreviousRanking(storageDir) : undefined;
     const ctx = await prepareRepositoryContext(
       context,
       workspaceFolder,
@@ -531,11 +600,11 @@ async function updateReadme(context: vscode.ExtensionContext): Promise<void> {
     }
 
     // Resumen del Paso 0 (informativo; el flujo continúa al Paso 1).
-    const { reused, newlyRankedPaths, fullRerankForced, newDetectedCount } = ctx.reuseInfo;
+    const { reused, newlyRankedPaths, fullRerankForced, newDetectedCount, changedDetectedCount } = ctx.reuseInfo;
     const paso0 = reused
-      ? `ranking reutilizado (${newDetectedCount} nuevo(s), ${newlyRankedPaths.length} colocado(s))`
+      ? `ranking reutilizado (${newDetectedCount} nuevo(s), ${changedDetectedCount} cambiado(s), ${newlyRankedPaths.length} recolocado(s))`
       : fullRerankForced
-        ? `ranking completo (demasiados nuevos: ${newDetectedCount})`
+        ? `ranking completo (demasiados nuevos/cambiados: ${newDetectedCount + changedDetectedCount})`
         : 'ranking completo';
 
     // Paso 1 — README → fichas. Extracción PURA del README con el modelo nano.
@@ -591,12 +660,19 @@ async function updateReadme(context: vscode.ExtensionContext): Promise<void> {
     const proposals = verified.filter((v) => v.recommendation !== 'keep');
 
     // Volcado silencioso de las propuestas para inspección (debug); el panel es la UI.
-    const previewDir = vscode.Uri.joinPath(workspaceFolder.uri, '.readme-generator-ai');
-    await vscode.workspace.fs.createDirectory(previewDir);
-    await vscode.workspace.fs.writeFile(
-      vscode.Uri.joinPath(previewDir, 'last-update-preview.json'),
-      new TextEncoder().encode(JSON.stringify(proposals, null, 2))
-    );
+    // Va al almacenamiento privado de la extensión (fuera del repo), como el resto de
+    // datos. Se salta si no hay storageDir (sin workspace) o si falla: es solo debug.
+    if (storageDir) {
+      try {
+        await vscode.workspace.fs.createDirectory(storageDir);
+        await vscode.workspace.fs.writeFile(
+          vscode.Uri.joinPath(storageDir, 'last-update-preview.json'),
+          new TextEncoder().encode(JSON.stringify(proposals, null, 2))
+        );
+      } catch (error) {
+        vscode.window.showWarningMessage(`No se pudo guardar la vista previa de la actualización: ${asErrorMessage(error)}`);
+      }
+    }
 
     if (proposals.length === 0) {
       vscode.window.showInformationMessage(
@@ -709,15 +785,15 @@ async function detectReadmeFile(workspaceFolder: vscode.WorkspaceFolder): Promis
 // dedicado `ranking.json`, escrito siempre). knownPaths = todos los ficheros que el
 // nano ha considerado, para distinguir los nuevos. undefined si no hay memoria
 // utilizable (→ el actualizador hará una pasada completa como fallback).
-async function loadPreviousRanking(workspaceFolder: vscode.WorkspaceFolder): Promise<ReuseRanking | undefined> {
-  const memory = await loadRankingMemory(workspaceFolder);
+async function loadPreviousRanking(storageDir: vscode.Uri): Promise<ReuseRanking | undefined> {
+  const memory = await loadRankingMemory(storageDir);
   if (!memory || memory.ranking.length === 0) {
     return undefined;
   }
   const knownPaths = new Set<string>(
     memory.seenPaths.length ? memory.seenPaths : memory.ranking.map((entry) => entry.path)
   );
-  return { previousSelection: memory.ranking, knownPaths };
+  return { previousSelection: memory.ranking, knownPaths, previousHashes: new Map(Object.entries(memory.fileHashes)) };
 }
 
 async function fileExists(uri: vscode.Uri): Promise<boolean> {
@@ -761,22 +837,6 @@ function validateFileSelection(
   };
 }
 
-const KEY_MATERIAL_PATTERN = /(?:\.(?:pem|key|pfx|p12|keystore|jks|asc|gpg)|(?:^|\/)id_(?:rsa|dsa|ecdsa|ed25519))$/i;
-const CREDENTIAL_FILE_PATTERN = /(?:(?:^|\/)\.(?:npmrc|netrc|pgpass|htpasswd)|\.tfvars|(?:^|\/)(?:secrets?|credentials?)\.[^/]+)$/i;
-
-function classifySensitiveFile(relativePath: string): AutoSensitiveFile | null {
-  if (KEY_MATERIAL_PATTERN.test(relativePath)) {
-    return { path: relativePath, suggested: 'exclude', reason: 'Material criptográfico / clave privada' };
-  }
-  if (isEnvFile(relativePath)) {
-    return { path: relativePath, suggested: 'redact', reason: 'Variables de entorno (.env)' };
-  }
-  if (CREDENTIAL_FILE_PATTERN.test(relativePath)) {
-    return { path: relativePath, suggested: 'redact', reason: 'Posibles credenciales' };
-  }
-  return null;
-}
-
 function summarizeLlmDiscarded(inventory: CandidateFile[], selectedRanking: CandidateFile[]): DiscardedFileSummary {
   const selectedPaths = new Set(selectedRanking.map((file) => file.relativePath));
   const discarded = inventory.filter((file) => !selectedPaths.has(file.relativePath));
@@ -799,26 +859,86 @@ function getActiveWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
   return vscode.workspace.workspaceFolders?.[0];
 }
 
-async function openLastTrace(): Promise<void> {
+async function openLastTrace(context: vscode.ExtensionContext): Promise<void> {
   const workspaceFolder = getActiveWorkspaceFolder();
   if (!workspaceFolder) {
     vscode.window.showErrorMessage('Abre un repositorio local en VS Code antes de abrir la traza.');
     return;
   }
-  await openLastGenerationTrace(workspaceFolder);
+  const storageDir = resolveStorageDir(context, workspaceFolder);
+  if (!storageDir) {
+    vscode.window.showWarningMessage('No hay ninguna traza de README Generator AI para este proyecto.');
+    return;
+  }
+  await openLastGenerationTrace(storageDir);
 }
 
+// Ficheros de datos que la extensión genera para un proyecto (en el almacenamiento
+// privado, fuera del repo). El orden define el que se ofrece en el selector.
+const GENERATED_DATA_FILES: Array<{ file: string; label: string; detail: string }> = [
+  { file: 'ranking.json', label: '$(list-ordered) ranking.json', detail: 'Memoria: ranking del modelo, ficheros vistos y hashes (la usa el actualizador)' },
+  { file: 'last-run.md', label: '$(markdown) last-run.md', detail: 'Traza legible de la última ejecución (descartados, ranking, coste…)' },
+  { file: 'last-run.json', label: '$(json) last-run.json', detail: 'Traza completa de la última ejecución en JSON' },
+  { file: 'last-update-preview.json', label: '$(json) last-update-preview.json', detail: 'Propuestas de la última actualización del README (debug)' }
+];
 
-async function saveTraceIfEnabled(
-  workspaceFolder: vscode.WorkspaceFolder,
-  enabled: boolean,
-  trace: GenerationTrace
-): Promise<void> {
-  if (!enabled) {
+// Comando de acceso a los datos generados. Como viven fuera del repo (en
+// context.storageUri), el explorador de VS Code no los muestra: este comando ofrece
+// un selector para abrirlos, más la opción de revelar la carpeta en el sistema.
+async function openGeneratedData(context: vscode.ExtensionContext): Promise<void> {
+  const workspaceFolder = getActiveWorkspaceFolder();
+  if (!workspaceFolder) {
+    vscode.window.showErrorMessage('Abre un repositorio local en VS Code para ver los datos generados.');
+    return;
+  }
+  const storageDir = resolveStorageDir(context, workspaceFolder);
+  if (!storageDir) {
+    vscode.window.showWarningMessage('No hay almacenamiento disponible para este proyecto.');
+    return;
+  }
+
+  type DataItem = vscode.QuickPickItem & { uri?: vscode.Uri; reveal?: boolean };
+  const items: DataItem[] = [];
+  for (const entry of GENERATED_DATA_FILES) {
+    const uri = vscode.Uri.joinPath(storageDir, entry.file);
+    if (await fileExists(uri)) {
+      items.push({ label: entry.label, detail: entry.detail, uri });
+    }
+  }
+
+  if (items.length === 0) {
+    vscode.window.showInformationMessage(
+      'README Generator AI aún no ha generado datos para este proyecto. Genera o actualiza un README primero.'
+    );
+    return;
+  }
+
+  items.push({ label: '$(folder-opened) Abrir carpeta en el explorador del sistema', reveal: true });
+  const pick = await vscode.window.showQuickPick(items, {
+    placeHolder: 'Datos de README Generator AI para este proyecto (fuera del repositorio)'
+  });
+  if (!pick) {
+    return;
+  }
+  if (pick.reveal) {
+    await vscode.commands.executeCommand('revealFileInOS', storageDir);
+    return;
+  }
+  if (pick.uri) {
+    const document = await vscode.workspace.openTextDocument(pick.uri);
+    await vscode.window.showTextDocument(document, { preview: false });
+  }
+}
+
+// Guarda la traza (siempre; ya no está condicionada por ningún ajuste). No lanza:
+// si falla, avisa y deja continuar el flujo, porque la traza es de depuración y su
+// fallo no debe abortar la generación. No-op si no hay storageDir (sin workspace).
+async function saveTrace(storageDir: vscode.Uri | undefined, trace: GenerationTrace): Promise<void> {
+  if (!storageDir) {
     return;
   }
   try {
-    await saveGenerationTrace(workspaceFolder, trace);
+    await saveGenerationTrace(storageDir, trace);
   } catch (error) {
     vscode.window.showWarningMessage(`No se pudo guardar la traza de README Generator AI: ${asErrorMessage(error)}`);
   }

@@ -11,8 +11,6 @@ import {
   getFieldInstruction,
   getFormSections,
   initTemplateSpec,
-  isHumanField,
-  isReviewField,
   parseTemplate,
   parseToken
 } from './templateSpec';
@@ -224,26 +222,6 @@ describe('derivación de estructura de datos desde la plantilla', () => {
 
   it('getFieldInstruction no aplica la sub-instrucción env a un campo que no es de tipo env', () => {
     expect(getFieldInstruction('scope.includes.name')).toBeUndefined();
-  });
-
-  it('isHumanField distingue los campos de rol H de los M', () => {
-    expect(isHumanField('summary.status')).toBe(true);
-    expect(isHumanField('project_name')).toBe(false);
-  });
-
-  it('isReviewField reconoce los campos de rol A y no confunde M ni H', () => {
-    initTemplateSpec(
-      [
-        '[[ a_campo | A | text | i ]]',
-        '[[ m_campo | M | text | i ]]',
-        '[[ h_campo | H | text | i ]]'
-      ].join('\n')
-    );
-    expect(isReviewField('a_campo')).toBe(true);
-    expect(isReviewField('m_campo')).toBe(false);
-    expect(isReviewField('h_campo')).toBe(false);
-    // Un campo A no es un campo humano: el modelo debe rellenarlo.
-    expect(isHumanField('a_campo')).toBe(false);
   });
 
   it('un campo A se incluye en el schema y en buildEmptyData como un campo del modelo (no como H)', () => {

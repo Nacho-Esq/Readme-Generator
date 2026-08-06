@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { getNonce } from '../ui/webviewHtml';
 
 // Paso 5 del actualizador — panel de revisión. Muestra las PROPUESTAS del Paso 4 (una
 // tarjeta por campo) y deja al humano decidir por cada una: aceptar el cambio, mantener
@@ -63,15 +64,6 @@ export class UpdateReviewPanel {
       panel.onDidDispose(() => doResolve({ action: 'cancel' }));
     });
   }
-}
-
-function getNonce(): string {
-  let text = '';
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  for (let i = 0; i < 32; i++) {
-    text += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return text;
 }
 
 function buildHtml(cards: UpdateCard[], readmeFileName: string): string {

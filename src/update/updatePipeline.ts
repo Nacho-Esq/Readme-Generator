@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Actualizador de README — REDISEÑO v4 (en construcción, fase a fase)
+// Actualizador de README — pasos puros de la tubería
 // ─────────────────────────────────────────────────────────────────────────────
 //
 // OBJETIVOS (recordatorio permanente):
@@ -14,9 +14,8 @@
 //     evidencia obligatoria antes de molestar al humano.
 //  5. El GENERADOR no se toca. Esta carpeta (src/update/) aísla el actualizador.
 //
-// Estos son STUBS: definen la estructura y los tipos para revisión. Cada paso se
-// implementa en su fase. La orquestación (ranking, contexto del repo, panel,
-// guardado) vive en extension.ts::updateReadme; aquí viven los PASOS puros.
+// La orquestación (ranking, contexto del repo, panel, guardado) vive en
+// extension.ts::updateReadme; aquí viven los PASOS puros de la tubería.
 
 import { AzureResponsesClient } from '../azure/azureResponsesClient';
 import { buildExtractionPrompt, NanoContext } from '../prompt/promptBuilder';

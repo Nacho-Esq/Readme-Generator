@@ -311,15 +311,6 @@ function envSubInstruction(path: string): string | undefined {
   return undefined;
 }
 
-export function isHumanField(path: string): boolean {
-  return getTemplateSpec().byPath.get(path)?.role === 'H';
-}
-
-// Campo A (ambos): el modelo lo rellena como un M, pero requiere revisión humana.
-export function isReviewField(path: string): boolean {
-  return getTemplateSpec().byPath.get(path)?.role === 'A';
-}
-
 export function fieldKey(path: string): string {
   return path.replace(/[^a-zA-Z0-9]/g, '_');
 }

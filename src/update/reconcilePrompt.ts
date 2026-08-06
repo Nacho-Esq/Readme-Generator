@@ -1,4 +1,6 @@
 import { PanelKind } from '../template/templateSpec';
+import { extractJsonObject, safeJsonParse } from '../utils/json';
+import { indent } from '../utils/text';
 
 // Paso 4 del actualizador — reconciliación de sospechosos. Para cada campo donde el
 // README y el código difieren de verdad, el modelo propone el valor CORREGIDO del campo
@@ -102,28 +104,4 @@ function formatHint(panelKind: PanelKind): string {
     return 'variables de entorno (NOMBRE: descripción por línea)';
   }
   return 'texto';
-}
-
-function indent(text: string): string {
-  return text
-    .split('\n')
-    .map((line) => `    ${line}`)
-    .join('\n');
-}
-
-function safeJsonParse(value: string): unknown {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return undefined;
-  }
-}
-
-function extractJsonObject(text: string): string {
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start === -1 || end === -1 || end <= start) {
-    return text;
-  }
-  return text.slice(start, end + 1);
 }

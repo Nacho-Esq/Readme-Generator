@@ -31,6 +31,12 @@
         "title": "Open Last Trace",
         "category": "README Generator AI",
         "icon": "$(output)"
+      },
+      {
+        "command": "readmeGeneratorAi.openGeneratedData",
+        "title": "Open Generated Data",
+        "category": "README Generator AI",
+        "icon": "$(database)"
       }
     ],
     "menus": {
@@ -43,6 +49,9 @@
         },
         {
           "command": "readmeGeneratorAi.openLastTrace"
+        },
+        {
+          "command": "readmeGeneratorAi.openGeneratedData"
         }
       ],
       "explorer/title": [
@@ -112,12 +121,6 @@
           "default": 30000,
           "minimum": 1000,
           "markdownDescription": "Presupuesto personalizado de tokens para el modelo principal. Solo se aplica cuando `readmeGeneratorAi.readDepth` está configurado como `personalizado`.",
-          "scope": "resource"
-        },
-        "readmeGeneratorAi.debugTrace": {
-          "type": "boolean",
-          "default": true,
-          "markdownDescription": "Guarda una traza local de la seleccion de archivos en `.readme-generator-ai/last-run.json` y `.readme-generator-ai/last-run.md`.",
           "scope": "resource"
         }
       }

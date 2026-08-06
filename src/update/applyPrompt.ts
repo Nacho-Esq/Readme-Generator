@@ -2,6 +2,8 @@
 // aprobados (sección, nombre, valor actual, valor nuevo o "quitar") y hace un reemplazo
 // PUNTUAL en su sitio, sin tocar nada más. No re-deriva ni reescribe: localiza y sustituye.
 
+import { indent } from '../utils/text';
+
 export interface ApplyChange {
   section: string;
   label: string;
@@ -40,11 +42,4 @@ export function buildApplyPrompt(readmeText: string, changes: ApplyChange[]): st
     readmeText,
     '```'
   ].join('\n');
-}
-
-function indent(text: string): string {
-  return text
-    .split('\n')
-    .map((line) => `    ${line}`)
-    .join('\n');
 }

@@ -18,7 +18,6 @@ function settings(overrides: Partial<ExtensionSettings> = {}): ExtensionSettings
     preSelectionDeployment: '',
     templatePath: '',
     readDepth: 'básico',
-    debugTrace: false,
     ...overrides
   };
 }

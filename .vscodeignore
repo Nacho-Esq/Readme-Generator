@@ -9,3 +9,4 @@ vitest.config.ts
 docs
 .gitignore
 package-lock.json
+README.generated.md

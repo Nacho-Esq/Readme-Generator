@@ -16,18 +16,23 @@ Extensión de VS Code en TypeScript para generar `README.generated.md` en españ
 
 ## Configuración
 
-Configura estos ajustes en VS Code:
+**Credenciales (API key y endpoint).** No son ajustes de VS Code: se guardan en el almacén seguro del sistema (SecretStorage), no en `settings.json`. Configúralas desde la paleta de comandos:
+
+- `CAI Readme-Generator: Configurar API key` — introduce tu API key de Azure OpenAI (campo oculto).
+- `CAI Readme-Generator: Configurar endpoint` — por ejemplo `https://<recurso>.openai.azure.com` o la URL completa de la Responses API.
+- `CAI Readme-Generator: Borrar credenciales guardadas` — elimina ambas del almacén seguro.
+
+**Ajustes** (en la configuración de VS Code):
 
 ```json
 {
-  "readmeGeneratorAi.apiKey": "<AZURE_OPENAI_API_KEY>",
-  "readmeGeneratorAi.endpoint": "https://<resource>.openai.azure.com",
-  "readmeGeneratorAi.deployment": "test-plantillas-gpt-5.2-codex",
+  "readmeGeneratorAi.deployment": "<nombre-de-tu-deployment>",
+  "readmeGeneratorAi.preSelectionDeployment": "<deployment-ligero-opcional>",
   "readmeGeneratorAi.templatePath": "C:\\\\ruta\\\\a\\\\readme.template.md"
 }
 ```
 
-`templatePath` es opcional. Si está vacío, la extensión usa `templates/readme.template.md` incluido en el paquete. Si usas una plantilla personalizada, respeta el formato de tokens `[[ ruta | M/H(?) | tipo? | instrucción ]]`.
+`deployment` es el nombre del modelo principal en tu recurso de Azure OpenAI. `preSelectionDeployment` es opcional: si se deja vacío, se usa el mismo `deployment`. `templatePath` también es opcional; si está vacío, la extensión usa `templates/readme.template.md` incluido en el paquete. Si usas una plantilla personalizada, respeta el formato de tokens `[[ ruta | M/H/A | tipo? | instrucción ]]`.
 
 ## Desarrollo local
 
@@ -41,7 +46,7 @@ Para probar la extensión:
 1. Abre este proyecto en VS Code.
 2. Pulsa `F5` para iniciar Extension Development Host.
 3. En la ventana nueva, abre el repositorio que quieras analizar.
-4. Configura `readmeGeneratorAi.apiKey`, `readmeGeneratorAi.endpoint` y `readmeGeneratorAi.deployment`.
+4. Configura las credenciales con los comandos `Configurar API key` y `Configurar endpoint`, y el ajuste `readmeGeneratorAi.deployment`.
 5. Ejecuta `Generate README`.
 
 ## Empaquetado

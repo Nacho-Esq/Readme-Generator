@@ -1,7 +1,10 @@
 src
 .vscode
+.claude
+.readme-generator-ai
 *.vsix
 tsconfig.json
+vitest.config.ts
 **/*.map
 docs
 .gitignore

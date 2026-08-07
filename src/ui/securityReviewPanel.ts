@@ -39,7 +39,7 @@ export class SecurityReviewPanel {
   ): Promise<SecurityReviewResult> {
     const panel = vscode.window.createWebviewPanel(
       'readmeGeneratorSecurityReview',
-      'README Generator AI — Protección de datos sensibles',
+      'CAI Readme-Generator — Protección de datos sensibles',
       vscode.ViewColumn.One,
       { enableScripts: true, retainContextWhenHidden: true }
     );

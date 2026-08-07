@@ -150,7 +150,7 @@ async function prepareRepositoryContext(
   options?: { reuseRanking?: ReuseRanking }
 ): Promise<RepositoryContext | undefined> {
   const candidates = await withStatusBar(
-    'README Generator AI: escaneando repositorio...',
+    'CAI Readme-Generator: escaneando repositorio...',
     scanRepository(workspaceFolder)
   );
   if (candidates.length === 0) {
@@ -216,7 +216,7 @@ async function prepareRepositoryContext(
 
   const preSelectionDeployment = getPreSelectionDeployment(settings);
   const allCandidateFiles = await withStatusBar(
-    `README Generator AI: leyendo repositorio completo (${sendableInventory.length} archivos)...`,
+    `CAI Readme-Generator: leyendo repositorio completo (${sendableInventory.length} archivos)...`,
     readAllCandidateFiles(sendableInventory, PRE_SELECTION_MAX_BYTES_PER_FILE, { overrides: contentOverrides, exclude: excludedPaths })
   );
   trace.preSelectionDeployment = preSelectionDeployment;
@@ -282,7 +282,7 @@ async function prepareRepositoryContext(
       trace.selectionPrompt = insertionPrompt;
       try {
         const nanoResult = await withStatusBar(
-          `README Generator AI: recolocando ${toPlace.length} archivo(s) (nuevos + cambiados) en el ranking...`,
+          `CAI Readme-Generator: recolocando ${toPlace.length} archivo(s) (nuevos + cambiados) en el ranking...`,
           client.callWithSchema(insertionPrompt, 'ranking_insertion', getRankingInsertionSchema(), preSelectionDeployment)
         );
         const placements = parseRankingPlacements(nanoResult.data);
@@ -325,7 +325,7 @@ async function prepareRepositoryContext(
     let nanoResult;
     try {
       nanoResult = await withStatusBar(
-        `README Generator AI: seleccionando archivos clave con modelo ligero...`,
+        `CAI Readme-Generator: seleccionando archivos clave con modelo ligero...`,
         client.preSelectImportantFiles(contentPrompt, preSelectionDeployment)
       );
     } catch (error) {
@@ -389,7 +389,7 @@ async function prepareRepositoryContext(
   }
 
   vscode.window.setStatusBarMessage(
-    `README Generator AI: preparando ${filesToRead.length} archivos...`,
+    `CAI Readme-Generator: preparando ${filesToRead.length} archivos...`,
     6_000
   );
   // Reutilizamos el contenido ya leído para el nano en lugar de releer del disco:
@@ -474,7 +474,7 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
     const { renderer, templatePath } = ctx;
 
     const extractionResult = await withStatusBar(
-      `README Generator AI: analizando ${ctx.selectedFiles.length} archivos...`,
+      `CAI Readme-Generator: analizando ${ctx.selectedFiles.length} archivos...`,
       ctx.client.extractReadmeData(
         buildExtractionPrompt(ctx.selectedFiles, workspaceFolder.name, ctx.repositoryMap, {
           nanoReasonsByPath: ctx.nanoReasonsByPath,
@@ -610,7 +610,7 @@ async function updateReadme(context: vscode.ExtensionContext): Promise<void> {
     // Paso 1 — README → fichas. Extracción PURA del README con el modelo nano.
     const readmeText = await readFileText(target.uri);
     const readmeFichas = await withStatusBar(
-      'README Generator AI: leyendo el README actual (fichas)...',
+      'CAI Readme-Generator: leyendo el README actual (fichas)...',
       extractReadmeFichas(ctx.client, readmeText, workspaceFolder.name, getPreSelectionDeployment(settings))
     );
 
@@ -628,7 +628,7 @@ async function updateReadme(context: vscode.ExtensionContext): Promise<void> {
     // Paso 2 — Código → fichas (modelo grande), acotado a los campos en alcance, con
     // las instrucciones de la plantilla.
     const codeFichas = await withStatusBar(
-      `README Generator AI: analizando el código para ${scopePaths.size} campo(s)...`,
+      `CAI Readme-Generator: analizando el código para ${scopePaths.size} campo(s)...`,
       extractCodeFichas(
         ctx.client,
         ctx.selectedFiles,
@@ -644,7 +644,7 @@ async function updateReadme(context: vscode.ExtensionContext): Promise<void> {
     // Comparación con el modelo GRANDE (sin override): la entrada es pequeña (solo las
     // fichas, sin código) y juzga mucho mejor "¿es lo mismo con otras palabras?".
     const comparisons = await withStatusBar(
-      'README Generator AI: comparando el README con el código...',
+      'CAI Readme-Generator: comparando el README con el código...',
       compareFichas(ctx.client, scopePaths, readmeFichas.fichas, codeFichas.fichas)
     );
     const suspects = comparisons.filter((c) => c.kind !== 'same');
@@ -653,7 +653,7 @@ async function updateReadme(context: vscode.ExtensionContext): Promise<void> {
     // 'keep' (segundo filtro de falsos positivos). Solo update/remove llegan al panel.
     const verified = suspects.length > 0
       ? await withStatusBar(
-          'README Generator AI: preparando propuestas de cambio...',
+          'CAI Readme-Generator: preparando propuestas de cambio...',
           reconcileSuspects(ctx.client, suspects, getPreSelectionDeployment(settings))
         )
       : [];
@@ -728,7 +728,7 @@ async function updateReadme(context: vscode.ExtensionContext): Promise<void> {
     }
 
     const newMarkdown = await withStatusBar(
-      'README Generator AI: aplicando los cambios al README...',
+      'CAI Readme-Generator: aplicando los cambios al README...',
       applyApprovedChanges(ctx.client, readmeText, changes, getPreSelectionDeployment(settings))
     );
 
@@ -867,7 +867,7 @@ async function openLastTrace(context: vscode.ExtensionContext): Promise<void> {
   }
   const storageDir = resolveStorageDir(context, workspaceFolder);
   if (!storageDir) {
-    vscode.window.showWarningMessage('No hay ninguna traza de README Generator AI para este proyecto.');
+    vscode.window.showWarningMessage('No hay ninguna traza de CAI Readme-Generator para este proyecto.');
     return;
   }
   await openLastGenerationTrace(storageDir);
@@ -908,14 +908,14 @@ async function openGeneratedData(context: vscode.ExtensionContext): Promise<void
 
   if (items.length === 0) {
     vscode.window.showInformationMessage(
-      'README Generator AI aún no ha generado datos para este proyecto. Genera o actualiza un README primero.'
+      'CAI Readme-Generator aún no ha generado datos para este proyecto. Genera o actualiza un README primero.'
     );
     return;
   }
 
   items.push({ label: '$(folder-opened) Abrir carpeta en el explorador del sistema', reveal: true });
   const pick = await vscode.window.showQuickPick(items, {
-    placeHolder: 'Datos de README Generator AI para este proyecto (fuera del repositorio)'
+    placeHolder: 'Datos de CAI Readme-Generator para este proyecto (fuera del repositorio)'
   });
   if (!pick) {
     return;
@@ -940,6 +940,6 @@ async function saveTrace(storageDir: vscode.Uri | undefined, trace: GenerationTr
   try {
     await saveGenerationTrace(storageDir, trace);
   } catch (error) {
-    vscode.window.showWarningMessage(`No se pudo guardar la traza de README Generator AI: ${asErrorMessage(error)}`);
+    vscode.window.showWarningMessage(`No se pudo guardar la traza de CAI Readme-Generator: ${asErrorMessage(error)}`);
   }
 }

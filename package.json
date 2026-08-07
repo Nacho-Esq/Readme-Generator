@@ -1,8 +1,8 @@
 {
-  "name": "readme-generator-ai",
-  "displayName": "README Generator AI",
+  "name": "cai-readme-generator",
+  "displayName": "CAI Readme-Generator",
   "description": "Genera README en español a partir de un repositorio local usando Azure OpenAI Responses API y una plantilla Markdown con tokens propios.",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "publisher": "nttdata",
   "license": "MIT",
   "engines": {
@@ -17,25 +17,25 @@
       {
         "command": "readmeGeneratorAi.generateReadme",
         "title": "Generate README",
-        "category": "README Generator AI",
+        "category": "CAI Readme-Generator",
         "icon": "$(book)"
       },
       {
         "command": "readmeGeneratorAi.updateReadme",
         "title": "Update README",
-        "category": "README Generator AI",
+        "category": "CAI Readme-Generator",
         "icon": "$(sync)"
       },
       {
         "command": "readmeGeneratorAi.openLastTrace",
         "title": "Open Last Trace",
-        "category": "README Generator AI",
+        "category": "CAI Readme-Generator",
         "icon": "$(output)"
       },
       {
         "command": "readmeGeneratorAi.openGeneratedData",
         "title": "Open Generated Data",
-        "category": "README Generator AI",
+        "category": "CAI Readme-Generator",
         "icon": "$(database)"
       }
     ],
@@ -66,7 +66,7 @@
       ]
     },
     "configuration": {
-      "title": "README Generator AI",
+      "title": "CAI Readme-Generator",
       "properties": {
         "readmeGeneratorAi.apiKey": {
           "type": "string",

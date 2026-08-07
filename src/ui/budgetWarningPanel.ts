@@ -21,7 +21,7 @@ export class BudgetWarningPanel {
   ): Promise<BudgetWarningResult> {
     const panel = vscode.window.createWebviewPanel(
       'readmeGeneratorBudgetWarning',
-      'README Generator AI — Archivos fuera del presupuesto',
+      'CAI Readme-Generator — Archivos fuera del presupuesto',
       vscode.ViewColumn.One,
       { enableScripts: true, retainContextWhenHidden: false }
     );

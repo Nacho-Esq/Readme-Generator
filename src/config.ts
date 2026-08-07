@@ -66,7 +66,7 @@ export async function ensureConfigured(settings: ExtensionSettings): Promise<boo
   }
 
   const action = await vscode.window.showErrorMessage(
-    `README Generator AI necesita configurar: ${missing.join(', ')}.`,
+    `CAI Readme-Generator necesita configurar: ${missing.join(', ')}.`,
     'Abrir configuración'
   );
   if (action === 'Abrir configuración') {

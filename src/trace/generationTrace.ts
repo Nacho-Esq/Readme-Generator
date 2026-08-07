@@ -106,7 +106,7 @@ export async function openLastGenerationTrace(storageDir: vscode.Uri): Promise<v
   try {
     await vscode.workspace.fs.stat(jsonUri);
   } catch {
-    vscode.window.showWarningMessage('No hay ninguna traza de README Generator AI para este proyecto.');
+    vscode.window.showWarningMessage('No hay ninguna traza de CAI Readme-Generator para este proyecto.');
     return;
   }
 
@@ -184,7 +184,7 @@ function formatTraceMarkdown(trace: GenerationTrace): string {
   const sections: string[] = [];
 
   // Header
-  sections.push('# README Generator AI — Trace');
+  sections.push('# CAI Readme-Generator — Trace');
   sections.push('');
   sections.push(`- **Workspace**: ${trace.workspaceName}`);
   sections.push(`- **Generado**: ${trace.generatedAt}`);

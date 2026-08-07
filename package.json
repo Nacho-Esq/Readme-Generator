@@ -37,6 +37,24 @@
         "title": "Open Generated Data",
         "category": "CAI Readme-Generator",
         "icon": "$(database)"
+      },
+      {
+        "command": "readmeGeneratorAi.setApiKey",
+        "title": "Configurar API key",
+        "category": "CAI Readme-Generator",
+        "icon": "$(key)"
+      },
+      {
+        "command": "readmeGeneratorAi.setEndpoint",
+        "title": "Configurar endpoint",
+        "category": "CAI Readme-Generator",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "readmeGeneratorAi.clearCredentials",
+        "title": "Borrar credenciales guardadas",
+        "category": "CAI Readme-Generator",
+        "icon": "$(trash)"
       }
     ],
     "menus": {
@@ -52,6 +70,15 @@
         },
         {
           "command": "readmeGeneratorAi.openGeneratedData"
+        },
+        {
+          "command": "readmeGeneratorAi.setApiKey"
+        },
+        {
+          "command": "readmeGeneratorAi.setEndpoint"
+        },
+        {
+          "command": "readmeGeneratorAi.clearCredentials"
         }
       ],
       "explorer/title": [
@@ -68,34 +95,22 @@
     "configuration": {
       "title": "CAI Readme-Generator",
       "properties": {
-        "readmeGeneratorAi.apiKey": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "Azure OpenAI API key. Prefer setting it in user settings and avoid committing workspace settings.",
-          "scope": "machine"
-        },
-        "readmeGeneratorAi.endpoint": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "Azure OpenAI endpoint. Accepts either the resource endpoint, for example `https://my-resource.openai.azure.com`, or a full Responses API URL.",
-          "scope": "machine"
-        },
         "readmeGeneratorAi.deployment": {
           "type": "string",
-          "default": "test-plantillas-gpt-5.2-codex",
-          "markdownDescription": "Azure OpenAI deployment/model name used by the Responses API.",
+          "default": "",
+          "markdownDescription": "Nombre del deployment (modelo) principal de Azure OpenAI que usa la Responses API. Configúralo con el nombre exacto de tu recurso.",
           "scope": "machine"
         },
         "readmeGeneratorAi.preSelectionDeployment": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Deployment del modelo ligero usado para leer y ordenar todos los archivos del repositorio. Si se deja vacio, se usa `test-plantillas-gpt-5.4-nano` por defecto.",
+          "markdownDescription": "Nombre del deployment del modelo ligero que lee y ordena todos los archivos del repositorio. Si se deja vacío, se usa el mismo deployment que el modelo principal.",
           "scope": "machine"
         },
         "readmeGeneratorAi.templatePath": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Optional absolute path to an external Markdown template (token format `[[ ruta | M/H | tipo | instrucción ]]`). If empty, the extension uses its bundled template.",
+          "markdownDescription": "Ruta absoluta (opcional) a una plantilla Markdown externa (formato de tokens `[[ ruta | M/H/A | tipo | instrucción ]]`). Si se deja vacío, se usa la plantilla incluida en la extensión.",
           "scope": "resource"
         },
         "readmeGeneratorAi.readDepth": {

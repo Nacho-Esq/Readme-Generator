@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { AzureResponsesClient } from './azure/azureResponsesClient';
 import { ensureConfigured, getPreSelectionDeployment, getReadDepthTokenBudget, getSettings } from './config';
+import { clearCredentialsCommand, migrateCredentialsFromSettings, setApiKeyCommand, setEndpointCommand } from './credentials';
 import { buildContentSelectionPrompt } from './prompt/fileSelectionPrompt';
 import { buildExtractionPrompt, UnreadFileInfo } from './prompt/promptBuilder';
 import {
@@ -34,7 +35,7 @@ import { applyApprovedChanges, compareFichas, extractCodeFichas, extractHeadings
 import { formatFichaValue, isFichaEmpty, parseFichaText } from './update/fichaUtils';
 import { ApplyChange } from './update/applyPrompt';
 import { UpdateCard, UpdateReviewPanel } from './update/updateReviewPanel';
-import { ReadmeData } from './types';
+import { ExtensionSettings, ReadmeData } from './types';
 import { asErrorMessage, describePreSelectionError } from './utils/errors';
 import { classifySensitiveFile, countRedactions, redactSecrets } from './utils/secretRedactor';
 
@@ -42,10 +43,20 @@ let statusBarItem: vscode.StatusBarItem | undefined;
 let updateStatusBarItem: vscode.StatusBarItem | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
+  // Migración única de credenciales de settings.json → SecretStorage. Fire-and-forget:
+  // no debe bloquear la activación; es casi instantánea y solo actúa la primera vez.
+  void migrateCredentialsFromSettings(context);
+
   const command = vscode.commands.registerCommand('readmeGeneratorAi.generateReadme', () =>
     generateReadme(context)
   );
   context.subscriptions.push(command);
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('readmeGeneratorAi.setApiKey', () => setApiKeyCommand(context)),
+    vscode.commands.registerCommand('readmeGeneratorAi.setEndpoint', () => setEndpointCommand(context)),
+    vscode.commands.registerCommand('readmeGeneratorAi.clearCredentials', () => clearCredentialsCommand(context))
+  );
 
   const updateCommand = vscode.commands.registerCommand('readmeGeneratorAi.updateReadme', () =>
     updateReadme(context)
@@ -146,7 +157,7 @@ interface ReuseRanking {
 async function prepareRepositoryContext(
   context: vscode.ExtensionContext,
   workspaceFolder: vscode.WorkspaceFolder,
-  settings: ReturnType<typeof getSettings>,
+  settings: ExtensionSettings,
   options?: { reuseRanking?: ReuseRanking }
 ): Promise<RepositoryContext | undefined> {
   const candidates = await withStatusBar(
@@ -462,7 +473,7 @@ async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
       return;
     }
 
-    const settings = getSettings();
+    const settings = await getSettings(context);
     if (!(await ensureConfigured(settings))) {
       return;
     }
@@ -564,7 +575,7 @@ async function updateReadme(context: vscode.ExtensionContext): Promise<void> {
       return;
     }
 
-    const settings = getSettings();
+    const settings = await getSettings(context);
     if (!(await ensureConfigured(settings))) {
       return;
     }

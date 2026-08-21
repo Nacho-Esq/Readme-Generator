@@ -38,6 +38,8 @@ import { UpdateCard, UpdateReviewPanel } from './update/updateReviewPanel';
 import { ExtensionSettings, ReadmeData } from './types';
 import { asErrorMessage, describePreSelectionError } from './utils/errors';
 import { classifySensitiveFile, countRedactions, redactSecrets } from './utils/secretRedactor';
+import { ProgressReporter, runWithProgress } from './ui/progressReporter';
+import { resolveTargetFolders } from './ui/targetFolder';
 
 let statusBarItem: vscode.StatusBarItem | undefined;
 let updateStatusBarItem: vscode.StatusBarItem | undefined;
@@ -47,8 +49,12 @@ export function activate(context: vscode.ExtensionContext): void {
   // no debe bloquear la activación; es casi instantánea y solo actúa la primera vez.
   void migrateCredentialsFromSettings(context);
 
-  const command = vscode.commands.registerCommand('readmeGeneratorAi.generateReadme', () =>
-    generateReadme(context)
+  // Los comandos de generar/actualizar reciben, cuando se invocan desde el menú
+  // contextual del explorador sobre una carpeta, la URI de esa carpeta como primer
+  // argumento. Desde la paleta o la barra de estado el argumento llega undefined y la
+  // carpeta objetivo se resuelve preguntando (QuickPick) si hay varias candidatas.
+  const command = vscode.commands.registerCommand('readmeGeneratorAi.generateReadme', (resource?: vscode.Uri) =>
+    generateReadme(context, resource)
   );
   context.subscriptions.push(command);
 
@@ -58,8 +64,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('readmeGeneratorAi.clearCredentials', () => clearCredentialsCommand(context))
   );
 
-  const updateCommand = vscode.commands.registerCommand('readmeGeneratorAi.updateReadme', () =>
-    updateReadme(context)
+  const updateCommand = vscode.commands.registerCommand('readmeGeneratorAi.updateReadme', (resource?: vscode.Uri) =>
+    updateReadme(context, resource)
   );
   context.subscriptions.push(updateCommand);
 
@@ -91,16 +97,6 @@ export function activate(context: vscode.ExtensionContext): void {
 export function deactivate(): void {
   statusBarItem?.dispose();
   updateStatusBarItem?.dispose();
-}
-
-// Muestra un mensaje en la barra de estado ligado a la vida de una promesa: el
-// mensaje permanece visible hasta que la operación termina, en lugar de
-// desaparecer tras un tiempo fijo. Así se elimina el hueco sin feedback en los
-// últimos segundos de las llamadas largas al modelo (parecía que el proceso
-// había terminado o fallado cuando en realidad seguía ejecutándose).
-function withStatusBar<T>(message: string, task: Thenable<T>): Thenable<T> {
-  vscode.window.setStatusBarMessage(message, task);
-  return task;
 }
 
 // Contexto preparado del repositorio: ficheros seleccionados y piezas de render,
@@ -158,12 +154,11 @@ async function prepareRepositoryContext(
   context: vscode.ExtensionContext,
   workspaceFolder: vscode.WorkspaceFolder,
   settings: ExtensionSettings,
+  reporter: ProgressReporter,
   options?: { reuseRanking?: ReuseRanking }
 ): Promise<RepositoryContext | undefined> {
-  const candidates = await withStatusBar(
-    'CAI Readme-Generator: escaneando repositorio...',
-    scanRepository(workspaceFolder)
-  );
+  reporter.phase('scan');
+  const candidates = await scanRepository(workspaceFolder);
   if (candidates.length === 0) {
     vscode.window.showErrorMessage('No se encontraron archivos relevantes para analizar.');
     return undefined;
@@ -205,11 +200,14 @@ async function prepareRepositoryContext(
     return result;
   };
 
+  // Espera humana: congelamos la barra mientras el usuario revisa la capa de seguridad.
+  reporter.freeze('Esperando la revisión de seguridad…');
   const securityResult = await SecurityReviewPanel.show(
     { autoSensitiveFiles, candidateFiles: inventory.selectorInventory.map(f => ({ relativePath: f.relativePath })) },
     context.extensionUri,
     redact
   );
+  reporter.unfreeze();
   if (securityResult.action === 'cancel') {
     return undefined;
   }
@@ -226,10 +224,8 @@ async function prepareRepositoryContext(
   }
 
   const preSelectionDeployment = getPreSelectionDeployment(settings);
-  const allCandidateFiles = await withStatusBar(
-    `CAI Readme-Generator: leyendo repositorio completo (${sendableInventory.length} archivos)...`,
-    readAllCandidateFiles(sendableInventory, PRE_SELECTION_MAX_BYTES_PER_FILE, { overrides: contentOverrides, exclude: excludedPaths })
-  );
+  reporter.phaseWithMessage('read', `Leyendo el repositorio completo (${sendableInventory.length} archivos)…`);
+  const allCandidateFiles = await readAllCandidateFiles(sendableInventory, PRE_SELECTION_MAX_BYTES_PER_FILE, { overrides: contentOverrides, exclude: excludedPaths });
   trace.preSelectionDeployment = preSelectionDeployment;
   trace.mainModelDeployment = settings.deployment;
   trace.preSelectionFilesSentCount = allCandidateFiles.length;
@@ -291,11 +287,9 @@ async function prepareRepositoryContext(
       // ranking base (orden de los no tocados FIJO); la fusión es mecánica.
       const insertionPrompt = buildRankingInsertionPrompt(baseSelection, toPlace, repositoryMap);
       trace.selectionPrompt = insertionPrompt;
+      reporter.phaseWithMessage('ranking', `Recolocando ${toPlace.length} archivo(s) (nuevos + cambiados) en el ranking…`);
       try {
-        const nanoResult = await withStatusBar(
-          `CAI Readme-Generator: recolocando ${toPlace.length} archivo(s) (nuevos + cambiados) en el ranking...`,
-          client.callWithSchema(insertionPrompt, 'ranking_insertion', getRankingInsertionSchema(), preSelectionDeployment)
-        );
+        const nanoResult = await client.callWithSchema(insertionPrompt, 'ranking_insertion', getRankingInsertionSchema(), preSelectionDeployment);
         const placements = parseRankingPlacements(nanoResult.data);
         const merged = mergeNewFilesIntoRanking(ranking, toPlace, placements);
         ranking = merged.ranking;
@@ -317,6 +311,7 @@ async function prepareRepositoryContext(
         warnings = warnings.concat(`No se pudieron recolocar los archivos, se añaden al final: ${asErrorMessage(error)}`);
       }
     } else {
+      reporter.phase('ranking');
       trace.selectionPrompt = '(ranking reutilizado de la generación previa; sin archivos nuevos ni cambiados)';
     }
 
@@ -333,12 +328,10 @@ async function prepareRepositoryContext(
   } else {
     const contentPrompt = buildContentSelectionPrompt(repositoryMap, allCandidateFiles);
     trace.selectionPrompt = contentPrompt;
+    reporter.phaseWithMessage('ranking', 'Seleccionando los archivos clave con el modelo ligero…');
     let nanoResult;
     try {
-      nanoResult = await withStatusBar(
-        `CAI Readme-Generator: seleccionando archivos clave con modelo ligero...`,
-        client.preSelectImportantFiles(contentPrompt, preSelectionDeployment)
-      );
+      nanoResult = await client.preSelectImportantFiles(contentPrompt, preSelectionDeployment);
     } catch (error) {
       vscode.window.showErrorMessage(describePreSelectionError(error, preSelectionDeployment));
       return undefined;
@@ -385,11 +378,13 @@ async function prepareRepositoryContext(
       nanoReason: nanoReasonsByPath.get(f.relativePath) ?? '',
       estimatedTokens: estimateTokensFromSize(f.size)
     }));
+    reporter.freeze('Esperando tu decisión sobre el presupuesto de lectura…');
     const budgetResult = await BudgetWarningPanel.show(
       overflowInfo,
       inputCostPerToken,
       context.extensionUri
     );
+    reporter.unfreeze();
     if (budgetResult.action === 'expand' && budgetResult.selectedPaths.length > 0) {
       const overflowByPath = new Map(overflow.map((f) => [f.relativePath, f]));
       const extras = budgetResult.selectedPaths
@@ -465,77 +460,99 @@ async function prepareRepositoryContext(
   };
 }
 
-async function generateReadme(context: vscode.ExtensionContext): Promise<void> {
-  try {
-    const workspaceFolder = getActiveWorkspaceFolder();
-    if (!workspaceFolder) {
-      vscode.window.showErrorMessage('Abre un repositorio local en VS Code antes de generar el README.');
-      return;
-    }
+// Orquestador de "Generar README". Resuelve la(s) carpeta(s) objetivo (raíz del
+// workspace, una subcarpeta elegida en el menú contextual, o la elección del usuario
+// en un QuickPick cuando hay varias candidatas) y ejecuta la generación para cada una.
+// Con `resource` (menú contextual sobre una carpeta) genera directamente para ESA
+// carpeta sin preguntar.
+async function generateReadme(context: vscode.ExtensionContext, resource?: vscode.Uri): Promise<void> {
+  const targets = await resolveTargetFolders(resource);
+  if (!targets || targets.length === 0) {
+    return;
+  }
 
-    const settings = await getSettings(context);
-    if (!(await ensureConfigured(settings))) {
-      return;
-    }
+  const settings = await getSettings(context);
+  if (!(await ensureConfigured(settings))) {
+    return;
+  }
 
-    const ctx = await prepareRepositoryContext(context, workspaceFolder, settings);
-    if (!ctx) {
-      return;
-    }
-    const { renderer, templatePath } = ctx;
+  for (const target of targets) {
+    await runGenerateForFolder(context, target, settings);
+  }
+}
 
-    const extractionResult = await withStatusBar(
-      `CAI Readme-Generator: analizando ${ctx.selectedFiles.length} archivos...`,
-      ctx.client.extractReadmeData(
+// Generación para UNA carpeta objetivo. Toda la operación transcurre bajo una barra de
+// progreso discreta en la barra inferior (ProgressLocation.Window) que refleja el
+// avance real por fases.
+async function runGenerateForFolder(
+  context: vscode.ExtensionContext,
+  workspaceFolder: vscode.WorkspaceFolder,
+  settings: ExtensionSettings
+): Promise<void> {
+  await runWithProgress(`CAI Readme-Generator · ${workspaceFolder.name}`, async (reporter) => {
+    try {
+      const ctx = await prepareRepositoryContext(context, workspaceFolder, settings, reporter);
+      if (!ctx) {
+        return;
+      }
+      const { renderer, templatePath } = ctx;
+
+      reporter.phaseWithMessage('model', `Analizando ${ctx.selectedFiles.length} archivos con el modelo principal…`);
+      const extractionResult = await ctx.client.extractReadmeData(
         buildExtractionPrompt(ctx.selectedFiles, workspaceFolder.name, ctx.repositoryMap, {
           nanoReasonsByPath: ctx.nanoReasonsByPath,
           unreadFiles: ctx.unreadFiles
         })
-      )
-    );
-    ctx.trace.mainModelTokenUsage = extractionResult.tokenUsage;
-    const finalReadmeData = extractionResult.data.data;
-    // Panel: solo lo accionable por el usuario (cobertura del nano + avisos de contenido
-    // del modelo grande). Las advertencias de proceso NO se muestran aquí.
-    const userWarnings = ctx.userWarnings.concat(extractionResult.data.warnings);
-    // Traza (depuración): TODO, incluidas las de proceso.
-    ctx.trace.warnings = ctx.processWarnings.concat(userWarnings);
-    await saveTrace(ctx.storageDir, ctx.trace);
+      );
+      ctx.trace.mainModelTokenUsage = extractionResult.tokenUsage;
+      const finalReadmeData = extractionResult.data.data;
+      // Panel: solo lo accionable por el usuario (cobertura del nano + avisos de contenido
+      // del modelo grande). Las advertencias de proceso NO se muestran aquí.
+      const userWarnings = ctx.userWarnings.concat(extractionResult.data.warnings);
+      // Traza (depuración): TODO, incluidas las de proceso.
+      ctx.trace.warnings = ctx.processWarnings.concat(userWarnings);
+      await saveTrace(ctx.storageDir, ctx.trace);
 
-    const review = analyzeReadmeData(finalReadmeData);
-    const initialRenderOptions = completeRenderOptions(finalReadmeData, createDefaultRenderOptions());
-    const initialReviewData = prepareDataForReview(finalReadmeData, initialRenderOptions);
-    const initialMarkdown = await renderer.render(templatePath, initialReviewData, initialRenderOptions);
+      reporter.phase('render');
+      const review = analyzeReadmeData(finalReadmeData);
+      const initialRenderOptions = completeRenderOptions(finalReadmeData, createDefaultRenderOptions());
+      const initialReviewData = prepareDataForReview(finalReadmeData, initialRenderOptions);
+      const initialMarkdown = await renderer.render(templatePath, initialReviewData, initialRenderOptions);
 
-    const editResult = await EditFormPanel.show(
-      initialReviewData,
-      initialMarkdown,
-      userWarnings,
-      context.extensionUri,
-      review,
-      initialRenderOptions,
-      async (data, renderOptions) => {
-        const completedOptions = completeRenderOptions(data, renderOptions);
-        const dataForRender = prepareDataForReview(data, completedOptions);
-        return renderer.render(templatePath, dataForRender, completedOptions);
+      // Espera humana: el panel de edición bloquea hasta que el usuario guarda o cierra.
+      reporter.freeze('Esperando tu revisión en el panel de edición…');
+      const editResult = await EditFormPanel.show(
+        initialReviewData,
+        initialMarkdown,
+        userWarnings,
+        context.extensionUri,
+        review,
+        initialRenderOptions,
+        async (data, renderOptions) => {
+          const completedOptions = completeRenderOptions(data, renderOptions);
+          const dataForRender = prepareDataForReview(data, completedOptions);
+          return renderer.render(templatePath, dataForRender, completedOptions);
+        }
+      );
+      reporter.unfreeze('Guardando el README…');
+      if (editResult.action !== 'save') {
+        return;
       }
-    );
-    if (editResult.action !== 'save') {
-      return;
+
+      const finalRenderOptions = completeRenderOptions(editResult.data, editResult.renderOptions);
+      const finalDataForRender = prepareDataForReview(editResult.data, finalRenderOptions);
+      const finalMarkdown = await renderer.render(templatePath, finalDataForRender, finalRenderOptions);
+      const outputUri = vscode.Uri.file(path.join(workspaceFolder.uri.fsPath, 'README.generated.md'));
+      await vscode.workspace.fs.writeFile(outputUri, new TextEncoder().encode(finalMarkdown));
+      reporter.done();
+
+      const document = await vscode.workspace.openTextDocument(outputUri);
+      await vscode.window.showTextDocument(document, { preview: false });
+      void notifyGeneratedWithTrace('README.generated.md generado correctamente.', ctx.storageDir);
+    } catch (error) {
+      vscode.window.showErrorMessage(`No se pudo generar el README: ${asErrorMessage(error)}`);
     }
-
-    const finalRenderOptions = completeRenderOptions(editResult.data, editResult.renderOptions);
-    const finalDataForRender = prepareDataForReview(editResult.data, finalRenderOptions);
-    const finalMarkdown = await renderer.render(templatePath, finalDataForRender, finalRenderOptions);
-    const outputUri = vscode.Uri.file(path.join(workspaceFolder.uri.fsPath, 'README.generated.md'));
-    await vscode.workspace.fs.writeFile(outputUri, new TextEncoder().encode(finalMarkdown));
-
-    const document = await vscode.workspace.openTextDocument(outputUri);
-    await vscode.window.showTextDocument(document, { preview: false });
-    void notifyGeneratedWithTrace('README.generated.md generado correctamente.', ctx.storageDir);
-  } catch (error) {
-    vscode.window.showErrorMessage(`No se pudo generar el README: ${asErrorMessage(error)}`);
-  }
+  });
 }
 
 // Aviso de éxito con acceso directo a la traza. No bloquea el flujo (fire-and-forget):
@@ -567,197 +584,216 @@ async function notifyGeneratedWithTrace(message: string, storageDir: vscode.Uri 
 //   Paso 4  Verificar           (nano)      verifySuspects
 //   Paso 5  Panel               (webview)   UpdateReviewPanel
 //   Paso 6  Aplicar+guardarraíl             applyApprovedChanges
-async function updateReadme(context: vscode.ExtensionContext): Promise<void> {
-  try {
-    const workspaceFolder = getActiveWorkspaceFolder();
-    if (!workspaceFolder) {
-      vscode.window.showErrorMessage('Abre un repositorio local en VS Code antes de actualizar el README.');
-      return;
-    }
+// Orquestador de "Update README". Resuelve la(s) carpeta(s) objetivo igual que el
+// generador (menú contextual sobre una carpeta, o QuickPick con "Todas" si hay varias
+// candidatas) y actualiza el README de cada una.
+async function updateReadme(context: vscode.ExtensionContext, resource?: vscode.Uri): Promise<void> {
+  const targets = await resolveTargetFolders(resource);
+  if (!targets || targets.length === 0) {
+    return;
+  }
 
-    const settings = await getSettings(context);
-    if (!(await ensureConfigured(settings))) {
-      return;
-    }
+  const settings = await getSettings(context);
+  if (!(await ensureConfigured(settings))) {
+    return;
+  }
 
-    const target = await detectReadmeFile(workspaceFolder);
-    if (target === undefined) {
-      return;
+  for (const target of targets) {
+    await runUpdateForFolder(context, target, settings);
+  }
+}
+
+// Actualización para UNA carpeta objetivo. La detección del README y el eventual
+// selector (cuando hay README.md y README.generated.md) ocurren antes de la barra de
+// progreso; la tubería pesada transcurre bajo ProgressLocation.Window.
+async function runUpdateForFolder(
+  context: vscode.ExtensionContext,
+  workspaceFolder: vscode.WorkspaceFolder,
+  settings: ExtensionSettings
+): Promise<void> {
+  const target = await detectReadmeFile(workspaceFolder);
+  if (target === undefined) {
+    return;
+  }
+  if (target === null) {
+    const choice = await vscode.window.showInformationMessage(
+      `No se encontró un README existente (README.md o README.generated.md) en ${workspaceFolder.name} para actualizar.`,
+      'Generar uno nuevo'
+    );
+    if (choice === 'Generar uno nuevo') {
+      await runGenerateForFolder(context, workspaceFolder, settings);
     }
-    if (target === null) {
-      const choice = await vscode.window.showInformationMessage(
-        'No se encontró un README existente (README.md o README.generated.md) para actualizar.',
-        'Generar uno nuevo'
+    return;
+  }
+
+  await runWithProgress(`CAI Readme-Generator · Actualizar ${workspaceFolder.name}`, async (reporter) => {
+    try {
+      // Paso 0 — Lectura del repo con ranking reutilizado (o completo si no hay
+      // memoria previa). Reutiliza el filtro heurístico + la capa de seguridad del
+      // generador vía prepareRepositoryContext, y deja el spec de plantilla listo.
+      const storageDir = resolveStorageDir(context, workspaceFolder);
+      const previous = storageDir ? await loadPreviousRanking(storageDir) : undefined;
+      const ctx = await prepareRepositoryContext(
+        context,
+        workspaceFolder,
+        settings,
+        reporter,
+        previous ? { reuseRanking: previous } : undefined
       );
-      if (choice === 'Generar uno nuevo') {
-        await generateReadme(context);
+      if (!ctx) {
+        return;
       }
-      return;
-    }
 
-    // Paso 0 — Lectura del repo con ranking reutilizado (o completo si no hay
-    // memoria previa). Reutiliza el filtro heurístico + la capa de seguridad del
-    // generador vía prepareRepositoryContext, y deja el spec de plantilla listo.
-    const storageDir = resolveStorageDir(context, workspaceFolder);
-    const previous = storageDir ? await loadPreviousRanking(storageDir) : undefined;
-    const ctx = await prepareRepositoryContext(
-      context,
-      workspaceFolder,
-      settings,
-      previous ? { reuseRanking: previous } : undefined
-    );
-    if (!ctx) {
-      return;
-    }
+      // Resumen del Paso 0 (informativo; el flujo continúa al Paso 1).
+      const { reused, newlyRankedPaths, fullRerankForced, newDetectedCount, changedDetectedCount } = ctx.reuseInfo;
+      const paso0 = reused
+        ? `ranking reutilizado (${newDetectedCount} nuevo(s), ${changedDetectedCount} cambiado(s), ${newlyRankedPaths.length} recolocado(s))`
+        : fullRerankForced
+          ? `ranking completo (demasiados nuevos/cambiados: ${newDetectedCount + changedDetectedCount})`
+          : 'ranking completo';
+      void paso0;
 
-    // Resumen del Paso 0 (informativo; el flujo continúa al Paso 1).
-    const { reused, newlyRankedPaths, fullRerankForced, newDetectedCount, changedDetectedCount } = ctx.reuseInfo;
-    const paso0 = reused
-      ? `ranking reutilizado (${newDetectedCount} nuevo(s), ${changedDetectedCount} cambiado(s), ${newlyRankedPaths.length} recolocado(s))`
-      : fullRerankForced
-        ? `ranking completo (demasiados nuevos/cambiados: ${newDetectedCount + changedDetectedCount})`
-        : 'ranking completo';
+      // A partir de aquí van las llamadas al modelo (fichas README, fichas código,
+      // comparar, reconciliar): todo el tramo largo. Entramos en la fase 'model', que
+      // avanza con creep por tiempo; el texto se refresca en cada paso sin saltar el %.
+      reporter.phase('model');
 
-    // Paso 1 — README → fichas. Extracción PURA del README con el modelo nano.
-    const readmeText = await readFileText(target.uri);
-    const readmeFichas = await withStatusBar(
-      'CAI Readme-Generator: leyendo el README actual (fichas)...',
-      extractReadmeFichas(ctx.client, readmeText, workspaceFolder.name, getPreSelectionDeployment(settings))
-    );
+      // Paso 1 — README → fichas. Extracción PURA del README con el modelo nano.
+      const readmeText = await readFileText(target.uri);
+      reporter.message('Leyendo el README actual (fichas)…');
+      const readmeFichas = await extractReadmeFichas(ctx.client, readmeText, workspaceFolder.name, getPreSelectionDeployment(settings));
 
-    // Alcance: SOLO los campos M/A que el README ya documenta (rellenos en el Paso 1).
-    // Los que el humano descartó al generar, o borró después, quedan fuera y NO se
-    // buscan en el código.
-    const scopePaths = getPopulatedFichaPaths(readmeFichas.fichas);
-    if (scopePaths.size === 0) {
-      vscode.window.showInformationMessage(
-        `${target.label} no tiene campos reconocibles de la plantilla; no hay nada que comparar.`
-      );
-      return;
-    }
+      // Alcance: SOLO los campos M/A que el README ya documenta (rellenos en el Paso 1).
+      // Los que el humano descartó al generar, o borró después, quedan fuera y NO se
+      // buscan en el código.
+      const scopePaths = getPopulatedFichaPaths(readmeFichas.fichas);
+      if (scopePaths.size === 0) {
+        vscode.window.showInformationMessage(
+          `${target.label} no tiene campos reconocibles de la plantilla; no hay nada que comparar.`
+        );
+        return;
+      }
 
-    // Paso 2 — Código → fichas (modelo grande), acotado a los campos en alcance, con
-    // las instrucciones de la plantilla.
-    const codeFichas = await withStatusBar(
-      `CAI Readme-Generator: analizando el código para ${scopePaths.size} campo(s)...`,
-      extractCodeFichas(
+      // Paso 2 — Código → fichas (modelo grande), acotado a los campos en alcance, con
+      // las instrucciones de la plantilla.
+      reporter.message(`Analizando el código para ${scopePaths.size} campo(s)…`);
+      const codeFichas = await extractCodeFichas(
         ctx.client,
         ctx.selectedFiles,
         workspaceFolder.name,
         ctx.repositoryMap,
         scopePaths,
         { nanoReasonsByPath: ctx.nanoReasonsByPath, unreadFiles: ctx.unreadFiles }
-      )
-    );
+      );
 
-    // Paso 3 — Comparar fichas (nano): por cada campo, same / readme_unsupported /
-    // code_differs. Los 'same' se descartan; el resto son sospechosos.
-    // Comparación con el modelo GRANDE (sin override): la entrada es pequeña (solo las
-    // fichas, sin código) y juzga mucho mejor "¿es lo mismo con otras palabras?".
-    const comparisons = await withStatusBar(
-      'CAI Readme-Generator: comparando el README con el código...',
-      compareFichas(ctx.client, scopePaths, readmeFichas.fichas, codeFichas.fichas)
-    );
-    const suspects = comparisons.filter((c) => c.kind !== 'same');
+      // Paso 3 — Comparar fichas (nano): por cada campo, same / readme_unsupported /
+      // code_differs. Los 'same' se descartan; el resto son sospechosos.
+      // Comparación con el modelo GRANDE (sin override): la entrada es pequeña (solo las
+      // fichas, sin código) y juzga mucho mejor "¿es lo mismo con otras palabras?".
+      reporter.message('Comparando el README con el código…');
+      const comparisons = await compareFichas(ctx.client, scopePaths, readmeFichas.fichas, codeFichas.fichas);
+      const suspects = comparisons.filter((c) => c.kind !== 'same');
 
-    // Paso 4 — Reconciliar sospechosos (nano): propone el valor corregido y puede decidir
-    // 'keep' (segundo filtro de falsos positivos). Solo update/remove llegan al panel.
-    const verified = suspects.length > 0
-      ? await withStatusBar(
-          'CAI Readme-Generator: preparando propuestas de cambio...',
-          reconcileSuspects(ctx.client, suspects, getPreSelectionDeployment(settings))
-        )
-      : [];
-    const proposals = verified.filter((v) => v.recommendation !== 'keep');
+      // Paso 4 — Reconciliar sospechosos (nano): propone el valor corregido y puede decidir
+      // 'keep' (segundo filtro de falsos positivos). Solo update/remove llegan al panel.
+      let verified: Awaited<ReturnType<typeof reconcileSuspects>> = [];
+      if (suspects.length > 0) {
+        reporter.message('Preparando propuestas de cambio…');
+        verified = await reconcileSuspects(ctx.client, suspects, getPreSelectionDeployment(settings));
+      }
+      const proposals = verified.filter((v) => v.recommendation !== 'keep');
 
-    // Volcado silencioso de las propuestas para inspección (debug); el panel es la UI.
-    // Va al almacenamiento privado de la extensión (fuera del repo), como el resto de
-    // datos. Se salta si no hay storageDir (sin workspace) o si falla: es solo debug.
-    if (storageDir) {
-      try {
-        await vscode.workspace.fs.createDirectory(storageDir);
-        await vscode.workspace.fs.writeFile(
-          vscode.Uri.joinPath(storageDir, 'last-update-preview.json'),
-          new TextEncoder().encode(JSON.stringify(proposals, null, 2))
+      // Volcado silencioso de las propuestas para inspección (debug); el panel es la UI.
+      // Va al almacenamiento privado de la extensión (fuera del repo), como el resto de
+      // datos. Se salta si no hay storageDir (sin workspace) o si falla: es solo debug.
+      if (storageDir) {
+        try {
+          await vscode.workspace.fs.createDirectory(storageDir);
+          await vscode.workspace.fs.writeFile(
+            vscode.Uri.joinPath(storageDir, 'last-update-preview.json'),
+            new TextEncoder().encode(JSON.stringify(proposals, null, 2))
+          );
+        } catch (error) {
+          vscode.window.showWarningMessage(`No se pudo guardar la vista previa de la actualización: ${asErrorMessage(error)}`);
+        }
+      }
+
+      if (proposals.length === 0) {
+        vscode.window.showInformationMessage(
+          `${target.label} ya está al día: no se detectaron cambios que proponer.`
         );
-      } catch (error) {
-        vscode.window.showWarningMessage(`No se pudo guardar la vista previa de la actualización: ${asErrorMessage(error)}`);
+        return;
       }
-    }
 
-    if (proposals.length === 0) {
-      vscode.window.showInformationMessage(
-        `${target.label} ya está al día: no se detectaron cambios que proponer.`
-      );
-      return;
-    }
-
-    // Paso 5 — Panel de revisión: el humano decide por cada propuesta.
-    const cards: UpdateCard[] = proposals.map((p) => ({
-      path: p.path,
-      label: p.label,
-      section: p.section,
-      panelKind: p.panelKind,
-      recommendation: p.recommendation === 'remove' ? 'remove' : 'update',
-      currentText: formatFichaValue(p.readmeValue, p.panelKind),
-      proposedText: formatFichaValue(p.proposedValue, p.panelKind),
-      reason: p.reason
-    }));
-    const result = await UpdateReviewPanel.show(cards, context.extensionUri, target.label);
-    if (result.action !== 'save') {
-      return;
-    }
-
-    // Paso 6 — Traducir las decisiones del panel a cambios y aplicarlos sobre el README.
-    const proposalsByPath = new Map(proposals.map((p) => [p.path, p]));
-    const changes: ApplyChange[] = [];
-    for (const decision of result.resolved) {
-      if (decision.decision === 'keep') {
-        continue;
+      // Paso 5 — Panel de revisión: el humano decide por cada propuesta.
+      const cards: UpdateCard[] = proposals.map((p) => ({
+        path: p.path,
+        label: p.label,
+        section: p.section,
+        panelKind: p.panelKind,
+        recommendation: p.recommendation === 'remove' ? 'remove' : 'update',
+        currentText: formatFichaValue(p.readmeValue, p.panelKind),
+        proposedText: formatFichaValue(p.proposedValue, p.panelKind),
+        reason: p.reason
+      }));
+      // Espera humana: congelamos la barra mientras el usuario decide en el panel.
+      reporter.freeze('Esperando tu revisión de los cambios propuestos…');
+      const result = await UpdateReviewPanel.show(cards, context.extensionUri, target.label);
+      reporter.unfreeze();
+      if (result.action !== 'save') {
+        return;
       }
-      const proposal = proposalsByPath.get(decision.path);
-      if (!proposal) {
-        continue;
+
+      // Paso 6 — Traducir las decisiones del panel a cambios y aplicarlos sobre el README.
+      const proposalsByPath = new Map(proposals.map((p) => [p.path, p]));
+      const changes: ApplyChange[] = [];
+      for (const decision of result.resolved) {
+        if (decision.decision === 'keep') {
+          continue;
+        }
+        const proposal = proposalsByPath.get(decision.path);
+        if (!proposal) {
+          continue;
+        }
+        const newValue = decision.decision === 'edit'
+          ? parseFichaText(decision.value ?? '', proposal.panelKind)
+          : proposal.recommendation === 'remove'
+            ? (proposal.panelKind === 'text' ? '' : [])
+            : proposal.proposedValue;
+        changes.push({
+          section: proposal.section,
+          label: proposal.label,
+          action: isFichaEmpty(newValue, proposal.panelKind) ? 'remove' : 'update',
+          currentText: formatFichaValue(proposal.readmeValue, proposal.panelKind),
+          newText: formatFichaValue(newValue, proposal.panelKind)
+        });
       }
-      const newValue = decision.decision === 'edit'
-        ? parseFichaText(decision.value ?? '', proposal.panelKind)
-        : proposal.recommendation === 'remove'
-          ? (proposal.panelKind === 'text' ? '' : [])
-          : proposal.proposedValue;
-      changes.push({
-        section: proposal.section,
-        label: proposal.label,
-        action: isFichaEmpty(newValue, proposal.panelKind) ? 'remove' : 'update',
-        currentText: formatFichaValue(proposal.readmeValue, proposal.panelKind),
-        newText: formatFichaValue(newValue, proposal.panelKind)
-      });
+
+      if (changes.length === 0) {
+        vscode.window.showInformationMessage(`No hay cambios que aplicar en ${target.label}.`);
+        return;
+      }
+
+      reporter.phase('render');
+      const newMarkdown = await applyApprovedChanges(ctx.client, readmeText, changes, getPreSelectionDeployment(settings));
+
+      // Guardarraíl estructural: los encabezados (#) no pueden haber cambiado.
+      if (extractHeadings(readmeText).join('\n') !== extractHeadings(newMarkdown).join('\n')) {
+        vscode.window.showErrorMessage(
+          `No se aplicaron los cambios: la operación habría alterado la estructura (encabezados) de ${target.label}. Inténtalo de nuevo.`
+        );
+        return;
+      }
+
+      await vscode.workspace.fs.writeFile(target.uri, new TextEncoder().encode(newMarkdown));
+      reporter.done();
+      const updatedDoc = await vscode.workspace.openTextDocument(target.uri);
+      await vscode.window.showTextDocument(updatedDoc, { preview: false });
+      vscode.window.showInformationMessage(`${target.label} actualizado: ${changes.length} cambio(s) aplicado(s).`);
+    } catch (error) {
+      vscode.window.showErrorMessage(`No se pudo actualizar el README: ${asErrorMessage(error)}`);
     }
-
-    if (changes.length === 0) {
-      vscode.window.showInformationMessage(`No hay cambios que aplicar en ${target.label}.`);
-      return;
-    }
-
-    const newMarkdown = await withStatusBar(
-      'CAI Readme-Generator: aplicando los cambios al README...',
-      applyApprovedChanges(ctx.client, readmeText, changes, getPreSelectionDeployment(settings))
-    );
-
-    // Guardarraíl estructural: los encabezados (#) no pueden haber cambiado.
-    if (extractHeadings(readmeText).join('\n') !== extractHeadings(newMarkdown).join('\n')) {
-      vscode.window.showErrorMessage(
-        `No se aplicaron los cambios: la operación habría alterado la estructura (encabezados) de ${target.label}. Inténtalo de nuevo.`
-      );
-      return;
-    }
-
-    await vscode.workspace.fs.writeFile(target.uri, new TextEncoder().encode(newMarkdown));
-    const updatedDoc = await vscode.workspace.openTextDocument(target.uri);
-    await vscode.window.showTextDocument(updatedDoc, { preview: false });
-    vscode.window.showInformationMessage(`${target.label} actualizado: ${changes.length} cambio(s) aplicado(s).`);
-  } catch (error) {
-    vscode.window.showErrorMessage(`No se pudo actualizar el README: ${asErrorMessage(error)}`);
-  }
+  });
 }
 
 interface ReadmeTarget {

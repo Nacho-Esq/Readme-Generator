@@ -11,6 +11,9 @@
   "categories": [
     "Other"
   ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
@@ -89,6 +92,18 @@
         {
           "command": "readmeGeneratorAi.updateReadme",
           "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "readmeGeneratorAi.generateReadme",
+          "when": "explorerResourceIsFolder",
+          "group": "readmeGeneratorAi@1"
+        },
+        {
+          "command": "readmeGeneratorAi.updateReadme",
+          "when": "explorerResourceIsFolder",
+          "group": "readmeGeneratorAi@2"
         }
       ]
     },

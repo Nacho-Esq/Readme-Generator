@@ -394,10 +394,6 @@ async function prepareRepositoryContext(
     }
   }
 
-  vscode.window.setStatusBarMessage(
-    `CAI Readme-Generator: preparando ${filesToRead.length} archivos...`,
-    6_000
-  );
   // Reutilizamos el contenido ya leído para el nano en lugar de releer del disco:
   // evita una segunda pasada de I/O y garantiza que el modelo grande ve lo mismo que el nano.
   const readByPath = new Map(allCandidateFiles.map((f) => [f.relativePath, f]));
@@ -489,7 +485,7 @@ async function runGenerateForFolder(
   workspaceFolder: vscode.WorkspaceFolder,
   settings: ExtensionSettings
 ): Promise<void> {
-  await runWithProgress(`CAI Readme-Generator · ${workspaceFolder.name}`, async (reporter) => {
+  await runWithProgress('Generación de README', async (reporter) => {
     try {
       const ctx = await prepareRepositoryContext(context, workspaceFolder, settings, reporter);
       if (!ctx) {
@@ -626,7 +622,7 @@ async function runUpdateForFolder(
     return;
   }
 
-  await runWithProgress(`CAI Readme-Generator · Actualizar ${workspaceFolder.name}`, async (reporter) => {
+  await runWithProgress('Actualización de README', async (reporter) => {
     try {
       // Paso 0 — Lectura del repo con ranking reutilizado (o completo si no hay
       // memoria previa). Reutiliza el filtro heurístico + la capa de seguridad del

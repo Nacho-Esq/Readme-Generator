@@ -18,6 +18,13 @@ export const MAX_FILE_BYTES = 2_000_000;
 const IGNORE_DIRECTORIES = new Set([
   'node_modules',
   '.git',
+  // Metadatos de herramientas de IA/agentes. `.claude/worktrees/` en particular
+  // guarda COPIAS COMPLETAS del repositorio por agente: reingerirlas dispara cientos
+  // de ficheros duplicados hacia el modelo (y con ello el coste y el rate limit).
+  '.claude',
+  // Metadatos de IDE y artefactos del test runner de VS Code: ruido, nunca aportan al README.
+  '.idea',
+  '.vscode-test',
   '.readme-generator-ai',
   'dist',
   'build',

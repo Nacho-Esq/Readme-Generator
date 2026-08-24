@@ -5,3 +5,4 @@ dist/
 .env
 README.generated.md
 .readme-generator-ai/
+.claude/

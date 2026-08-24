@@ -3,13 +3,20 @@
   "displayName": "CAI Readme-Generator",
   "description": "Genera README en español a partir de un repositorio local usando Azure OpenAI Responses API y una plantilla Markdown con tokens propios.",
   "version": "1.0.0",
-  "publisher": "nttdata",
+  "publisher": "iesquivr",
   "license": "MIT",
   "engines": {
     "vscode": "^1.92.0"
   },
   "categories": [
     "Other"
+  ],
+  "keywords": [
+    "readme",
+    "documentation",
+    "generator",
+    "ai",
+    "azure openai"
   ],
   "activationEvents": [
     "onStartupFinished"
@@ -113,19 +120,19 @@
         "readmeGeneratorAi.deployment": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Nombre del deployment (modelo) principal de Azure OpenAI que usa la Responses API. Configúralo con el nombre exacto de tu recurso.",
+          "markdownDescription": "Modelo de **redacción**: el que escribe el README. Es el modelo \"grande\", así que elige uno con buena calidad de escritura. Como mínimo debería ser un modelo tipo **mini** (o superior). Escribe aquí el nombre exacto de tu modelo.",
           "scope": "machine"
         },
         "readmeGeneratorAi.preSelectionDeployment": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Nombre del deployment del modelo ligero que lee y ordena todos los archivos del repositorio. Si se deja vacío, se usa el mismo deployment que el modelo principal.",
+          "markdownDescription": "Modelo de **lectura**: el que revisa los archivos del proyecto y decide qué es importante. Es el modelo \"pequeño\", así que basta con uno económico tipo **nano**. Escribe aquí el nombre exacto de tu modelo. Si lo dejas vacío, se usará el mismo modelo que el de redacción.",
           "scope": "machine"
         },
         "readmeGeneratorAi.templatePath": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Ruta absoluta (opcional) a una plantilla Markdown externa (formato de tokens `[[ ruta | M/H/A | tipo | instrucción ]]`). Si se deja vacío, se usa la plantilla incluida en la extensión.",
+          "markdownDescription": "Opcional y solo para usuarios avanzados. Ruta a tu propia plantilla de README si quieres personalizar cómo queda. Si lo dejas vacío, se usa la plantilla que ya trae la extensión (recomendado).",
           "scope": "resource"
         },
         "readmeGeneratorAi.readDepth": {
@@ -138,25 +145,26 @@
             "personalizado"
           ],
           "enumDescriptions": [
-            "Consumo bajo: aprox. 30k tokens de lectura detallada.",
-            "Consumo medio: aprox. 90k tokens de lectura detallada.",
-            "Consumo elevado: aprox. 180k tokens de lectura detallada.",
-            "Presupuesto definido manualmente en el ajuste readDepthCustomBudget."
+            "Lectura rápida y más barata. Suficiente para proyectos pequeños o sencillos.",
+            "Lectura equilibrada. Recomendado para la mayoría de proyectos.",
+            "Lectura minuciosa y más cara. Para proyectos grandes o complejos.",
+            "Tú decides cuánto puede leer (se ajusta más abajo)."
           ],
-          "markdownDescription": "Controla el presupuesto de tokens del modelo principal al leer los archivos seleccionados. Los tokens consumidos por el modelo ligero de pre-seleccion son independientes y no se cuentan aqui.",
+          "markdownDescription": "Cuánto detalle lee la herramienta antes de escribir el README. A más profundidad, mejor resultado en proyectos grandes, pero también más coste. Si no lo tienes claro, deja **detallado**.",
           "scope": "resource"
         },
         "readmeGeneratorAi.readDepthCustomBudget": {
           "type": "number",
           "default": 30000,
           "minimum": 1000,
-          "markdownDescription": "Presupuesto personalizado de tokens para el modelo principal. Solo se aplica cuando `readmeGeneratorAi.readDepth` está configurado como `personalizado`.",
+          "markdownDescription": "Límite de lectura a medida. Solo se usa si arriba eliges la profundidad **personalizado**. Un número más alto lee más (mejor resultado, más coste).",
           "scope": "resource"
         }
       }
     }
   },
   "scripts": {
+    "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "test": "vitest run",

@@ -274,22 +274,61 @@ export class ProgressReporter {
   }
 }
 
-// Ejecuta `operation` mostrando una barra de progreso discreta en la barra inferior
-// (ProgressLocation.Window: spinner + texto, sin popups). Crea el ProgressReporter,
-// se lo pasa a la operación y garantiza la limpieza del temporizador del creep.
+// Número de celdas de la barra de progreso textual.
+const BAR_CELLS = 10;
+
+// Dibuja una barra de progreso con caracteres de bloque, p. ej. "███████░░░", a partir
+// de un porcentaje 0..100. La API de progreso nativa de VS Code NO sabe pintar una barra
+// en la barra de estado (ProgressLocation.Window solo muestra un spinner + texto, y
+// ProgressLocation.Notification pinta una barra pero como popup), así que la barra la
+// construimos nosotros como texto dentro de un StatusBarItem.
+export function renderBar(percent: number): string {
+  const pct = Math.min(100, Math.max(0, percent));
+  const filled = Math.round((pct / 100) * BAR_CELLS);
+  return '█'.repeat(filled) + '░'.repeat(BAR_CELLS - filled);
+}
+
+// Ejecuta `operation` mostrando una barra de progreso REAL directamente en la barra de
+// estado (barra inferior de VS Code), sin popups, sin notificaciones y sin desplegables.
+// El texto que ve el usuario es, por ejemplo: "Generación de README  ███████░░░  72%".
+// El mensaje de cada fase NO se muestra en línea (el usuario solo quiere la barra); va al
+// tooltip del propio elemento, visible al pasar el ratón. Crea el ProgressReporter, le
+// inyecta un destino que actualiza el StatusBarItem, y garantiza limpiar todo al terminar.
 export function runWithProgress<T>(
   title: string,
   operation: (reporter: ProgressReporter) => Promise<T>
 ): Thenable<T> {
-  return vscode.window.withProgress(
-    { location: vscode.ProgressLocation.Window, title },
-    async (progress) => {
-      const reporter = new ProgressReporter(progress);
-      try {
-        return await operation(reporter);
-      } finally {
-        reporter.dispose();
-      }
+  const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 1000);
+  let percent = 0;
+
+  const render = (message?: string): void => {
+    item.text = `$(sync~spin) ${title}  ${renderBar(percent)}  ${Math.round(percent)}%`;
+    if (message !== undefined) {
+      item.tooltip = message;
     }
-  );
+  };
+
+  // El ProgressReporter emite deltas en porcentaje (increment) y un mensaje por fase; los
+  // deltas se acumulan en la barra y el mensaje va al tooltip.
+  const progress: VsProgress = {
+    report: ({ increment, message }) => {
+      if (typeof increment === 'number' && increment > 0) {
+        percent = Math.min(100, percent + increment);
+      }
+      render(message);
+    }
+  };
+
+  render(); // estado inicial: barra vacía, 0 %
+  item.show();
+
+  const reporter = new ProgressReporter(progress);
+  return (async () => {
+    try {
+      return await operation(reporter);
+    } finally {
+      reporter.dispose();
+      item.dispose();
+    }
+  })();
 }

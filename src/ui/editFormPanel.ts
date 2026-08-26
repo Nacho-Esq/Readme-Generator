@@ -1,133 +1,31 @@
 import * as vscode from 'vscode';
+import { FieldSpec, fieldKey, getFieldInstruction, getFormSections, PanelKind } from '../template/templateSpec';
+import { FILL_PLACEHOLDER, isPlaceholderValue, RenderOptions, ReviewModel } from '../readme/reviewModel';
 import { ReadmeData } from '../types';
+import { getValueAtPath } from '../utils/objectPath';
+import { getNonce } from './webviewHtml';
 
 type EditResult =
-  | { action: 'save'; data: ReadmeData }
+  | { action: 'save'; data: ReadmeData; renderOptions: RenderOptions }
   | { action: 'cancel' };
 
-type FieldKind = 'text' | 'list' | 'env';
-
-interface FieldDefinition {
-  path: string;
-  label: string;
-  kind: FieldKind;
-  hint?: string;
-}
-
-interface FormSection {
-  title: string;
-  fields: FieldDefinition[];
-}
-
-const FORM_SECTIONS: FormSection[] = [
-  {
-    title: 'Base',
-    fields: [
-      { path: 'project_name', label: 'Nombre del proyecto', kind: 'text' },
-      { path: 'screenshot_path', label: 'Ruta de captura/GIF', kind: 'text' }
-    ]
-  },
-  {
-    title: 'Resumen',
-    fields: [
-      { path: 'summary.what_is', label: 'Qué es', kind: 'text' },
-      { path: 'summary.project_type', label: 'Tipo de proyecto', kind: 'text' },
-      { path: 'summary.purpose', label: 'Propósito', kind: 'text' },
-      { path: 'summary.target_users', label: 'Usuarios objetivo', kind: 'list' },
-      { path: 'summary.status', label: 'Estado', kind: 'text' },
-      { path: 'summary.success_criteria', label: 'Objetivo y éxito', kind: 'text' }
-    ]
-  },
-  {
-    title: 'Alcance y Uso',
-    fields: [
-      { path: 'scope.includes', label: 'Qué incluye', kind: 'list' },
-      { path: 'scope.excludes', label: 'Qué no incluye', kind: 'list' },
-      { path: 'scope.known_limitations', label: 'Limitaciones conocidas', kind: 'list' },
-      { path: 'usage.channels', label: 'Canales', kind: 'list' },
-      { path: 'usage.languages', label: 'Idiomas', kind: 'list' },
-      { path: 'usage.contexts', label: 'Contextos de uso', kind: 'list' }
-    ]
-  },
-  {
-    title: 'Experiencia de Usuario',
-    fields: [
-      { path: 'ux.start_flow', label: 'Cómo se inicia', kind: 'text' },
-      { path: 'ux.expected_questions', label: 'Preguntas esperadas', kind: 'list' },
-      { path: 'ux.attachments_support', label: 'Adjuntos', kind: 'text' },
-      { path: 'ux.fallback_error_handling', label: 'Errores y fallback', kind: 'text' },
-      { path: 'ux.human_handoff', label: 'Handoff a humano', kind: 'text' },
-      { path: 'ux.history_session_memory', label: 'Historial/memoria', kind: 'text' }
-    ]
-  },
-  {
-    title: 'Arquitectura y Conocimiento',
-    fields: [
-      { path: 'architecture.logical_flow', label: 'Diagrama/flujo lógico', kind: 'text' },
-      { path: 'architecture.components', label: 'Componentes principales', kind: 'list' },
-      { path: 'architecture.external_dependencies', label: 'Dependencias externas', kind: 'list' },
-      { path: 'knowledge_prompts.sources', label: 'Fuentes de conocimiento', kind: 'list' },
-      { path: 'knowledge_prompts.rag_summary', label: 'Recuperación/RAG', kind: 'text' },
-      { path: 'knowledge_prompts.prompt_guardrails_location', label: 'Prompts/guardrails', kind: 'text' },
-      { path: 'knowledge_prompts.forbidden_content_handling', label: 'Contenido no permitido', kind: 'text' }
-    ]
-  },
-  {
-    title: 'Seguridad y Privacidad',
-    fields: [
-      { path: 'security_privacy.processed_data', label: 'Datos tratados', kind: 'list' },
-      { path: 'security_privacy.retention_storage', label: 'Retención/almacenamiento', kind: 'text' },
-      { path: 'security_privacy.access_auth', label: 'Acceso/autenticación', kind: 'text' },
-      { path: 'security_privacy.anonymization_secrets', label: 'Anonimización/secretos', kind: 'text' },
-      { path: 'security_privacy.compliance_notes', label: 'Cumplimiento', kind: 'text' }
-    ]
-  },
-  {
-    title: 'Desarrollo Local',
-    fields: [
-      { path: 'local_development.requirements', label: 'Requisitos', kind: 'list' },
-      { path: 'local_development.env_variables', label: 'Variables de entorno', kind: 'env', hint: 'Una variable por línea: NOMBRE: descripción' },
-      { path: 'local_development.resources', label: 'Recursos/datos', kind: 'list' },
-      { path: 'local_development.install_run_commands', label: 'Comandos de instalación/arranque', kind: 'list' },
-      { path: 'local_development.validation_checks', label: 'Validación rápida', kind: 'list' },
-      { path: 'local_development.testing_strategy', label: 'Pruebas', kind: 'text' }
-    ]
-  },
-  {
-    title: 'Despliegue y Operación',
-    fields: [
-      { path: 'deployment.environments', label: 'Entornos', kind: 'list' },
-      { path: 'deployment.process', label: 'Proceso de despliegue', kind: 'text' },
-      { path: 'deployment.environment_differences', label: 'Diferencias por entorno', kind: 'text' },
-      { path: 'operations.logs', label: 'Logs', kind: 'text' },
-      { path: 'operations.traces', label: 'Trazas', kind: 'text' },
-      { path: 'operations.metrics', label: 'Métricas', kind: 'text' },
-      { path: 'operations.alerts_runbooks', label: 'Alertas/runbooks', kind: 'text' },
-      { path: 'operations.incident_process', label: 'Proceso de incidencias', kind: 'text' }
-    ]
-  },
-  {
-    title: 'Documentación y Ownership',
-    fields: [
-      { path: 'documentation_links.coordination_tools', label: 'Gestión y coordinación', kind: 'list' },
-      { path: 'documentation_links.repos_pipelines', label: 'Repositorios y CI/CD', kind: 'list' },
-      { path: 'documentation_links.environments_resources', label: 'Entornos y recursos', kind: 'list' },
-      { path: 'documentation_links.manuals_docs', label: 'Manuales/docs', kind: 'list' },
-      { path: 'roadmap', label: 'Roadmap/mejoras', kind: 'list' },
-      { path: 'contacts.product_owner', label: 'Product owner', kind: 'text' },
-      { path: 'contacts.technical_owner', label: 'Responsable técnico', kind: 'text' },
-      { path: 'contacts.responsible_team', label: 'Equipo responsable', kind: 'text' },
-      { path: 'contacts.support_operations', label: 'Soporte/Operación', kind: 'text' },
-      { path: 'related_projects', label: 'Proyectos relacionados (solo desarrollador)', kind: 'list' }
-    ]
-  }
-];
+type RenderPreview = (data: ReadmeData, renderOptions: RenderOptions) => Promise<string>;
+// `kind` (= panelKind) se incluye explícitamente porque el JS del webview lo lee.
+type PendingField = FieldSpec & { key: string; sectionTitle: string; kind: PanelKind };
 
 export class EditFormPanel {
-  static show(data: ReadmeData, warnings: string[], extensionUri: vscode.Uri): Promise<EditResult> {
+  static show(
+    data: ReadmeData,
+    markdown: string,
+    warnings: string[],
+    extensionUri: vscode.Uri,
+    review: ReviewModel,
+    renderOptions: RenderOptions,
+    renderPreview: RenderPreview
+  ): Promise<EditResult> {
     const panel = vscode.window.createWebviewPanel(
       'readmeGeneratorAiEdit',
-      'README Fields',
+      'README Review',
       vscode.ViewColumn.Beside,
       {
         enableScripts: true,
@@ -137,21 +35,37 @@ export class EditFormPanel {
 
     return new Promise((resolve, reject) => {
       let resolved = false;
+      let currentRenderOptions = renderOptions;
 
       try {
-        panel.webview.html = getEditHtml(panel.webview, data, warnings);
+        panel.webview.html = getEditHtml(panel.webview, extensionUri, data, markdown, warnings, review, renderOptions);
       } catch (error) {
         resolved = true;
         reject(error);
         return;
       }
 
-      const subscription = panel.webview.onDidReceiveMessage((message) => {
-        if (message?.command === 'save') {
-          cleanup({ action: 'save', data: message.data as ReadmeData });
-        }
-        if (message?.command === 'cancel') {
+      const subscription = panel.webview.onDidReceiveMessage(async (message) => {
+        try {
+          if (message?.command === 'preview') {
+            currentRenderOptions = normalizeRenderOptions(message.renderOptions);
+            const nextMarkdown = await renderPreview(message.data as ReadmeData, currentRenderOptions);
+            await panel.webview.postMessage({ command: 'previewMarkdown', markdown: nextMarkdown });
+          }
+          if (message?.command === 'save') {
+            currentRenderOptions = normalizeRenderOptions(message.renderOptions);
+            cleanup({
+              action: 'save',
+              data: message.data as ReadmeData,
+              renderOptions: currentRenderOptions
+            });
+          }
+          if (message?.command === 'cancel') {
+            cleanup({ action: 'cancel' });
+          }
+        } catch (error) {
           cleanup({ action: 'cancel' });
+          reject(error);
         }
       });
 
@@ -175,34 +89,103 @@ export class EditFormPanel {
   }
 }
 
-function getEditHtml(webview: vscode.Webview, data: ReadmeData, warnings: string[]): string {
+function getEditHtml(
+  webview: vscode.Webview,
+  extensionUri: vscode.Uri,
+  data: ReadmeData,
+  markdown: string,
+  warnings: string[],
+  review: ReviewModel,
+  renderOptions: RenderOptions
+): string {
   const nonce = getNonce();
-  const sections = FORM_SECTIONS.map((section) => sectionEditor(section, data)).join('');
+  const mermaidUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'mermaid.min.js'));
+  // Campos de diagrama (tipo `raw` con contenido Mermaid): se sacan a su propia
+  // sección "Diagramas" para renderizarlos y poder descartarlos uno a uno. Se
+  // excluyen de revisar/pendientes para no mostrarlos dos veces.
+  const diagramFields = getDiagramFields(data);
+  const diagramPaths = new Set(diagramFields.map((field) => field.path));
+  const reviewFields = getReviewFields(review).filter((field) => !diagramPaths.has(field.path));
+  const pendingFields = getPendingFields(review).filter((field) => !diagramPaths.has(field.path));
+  // El JS del webview necesita todos los grupos para recolectar valores, marcar
+  // vacíos y descartar. Los de revisión van primero (aparecen antes en el panel).
+  const editableFields = [...reviewFields, ...pendingFields, ...diagramFields];
   const warningItems = warnings.length
     ? warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join('')
-    : '<li>Revisa los campos vacíos antes de guardar.</li>';
-  const fields = FORM_SECTIONS.flatMap((section) => section.fields);
+    : '<li>Sin advertencias: no se detectaron huecos de cobertura en el README.</li>';
+  const reviewSection = reviewFields.length
+    ? `<section>
+        <h2>Campos a revisar</h2>
+        <p class="muted">El modelo rellenó estos campos, pero pueden estar incompletos o ser imprecisos. Revísalos y corrige lo que sea necesario antes de guardar.</p>
+        <div class="section-actions">
+          <button type="button" class="confirm" data-bulk-scope="review" data-bulk-action="confirm">Confirmar todo</button>
+          <button type="button" class="danger" data-bulk-scope="review" data-bulk-action="discard">Descartar todo</button>
+        </div>
+        ${reviewFields.map((field) => fieldEditor(field, data, 'review')).join('')}
+      </section>`
+    : '';
+  const pendingActions = pendingFields.length
+    ? `<div class="section-actions">
+        <button type="button" class="danger" data-bulk-scope="pending" data-bulk-action="discard">Descartar todo</button>
+      </div>`
+    : '';
+  const pendingContent = pendingFields.length
+    ? pendingFields.map((field) => fieldEditor(field, data, 'pending')).join('')
+    : '<p class="muted">No hay campos pendientes de completar.</p>';
+  const diagramSection = diagramFields.length
+    ? `<section>
+        <h2>Diagramas</h2>
+        <p class="muted">Cada diagrama Mermaid generado se muestra renderizado. Revísalo y descarta uno a uno los que no quieras; también puedes editar su código y la vista se actualiza.</p>
+        ${diagramFields.map((field) => fieldEditor(field, data, 'diagram')).join('')}
+      </section>`
+    : '';
 
   return `<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} data:; font-src ${webview.cspSource} data:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>README Fields</title>
+  <title>README Review</title>
   <style>
     body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); background: var(--vscode-editor-background); padding: 20px; }
     .toolbar { display: flex; gap: 8px; position: sticky; top: 0; background: var(--vscode-editor-background); padding-bottom: 12px; border-bottom: 1px solid var(--vscode-panel-border); z-index: 2; }
     button { color: var(--vscode-button-foreground); background: var(--vscode-button-background); border: 0; padding: 8px 12px; cursor: pointer; border-radius: 2px; }
     button.secondary { color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); }
-    .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+    button.danger { color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); }
+    .layout { display: flex; flex-direction: column; gap: 18px; }
     section { border: 1px solid var(--vscode-panel-border); margin: 16px 0; padding: 12px; }
-    fieldset { border: 0; margin: 12px 0; padding: 0; }
+    h2 { margin-top: 0; font-size: 16px; }
+    fieldset { border: 1px solid var(--vscode-panel-border); margin: 12px 0; padding: 12px; }
+    fieldset.omitted, fieldset.confirmed { display: none; }
+    .field-actions { display: flex; gap: 8px; flex-shrink: 0; }
+    .section-actions { display: flex; gap: 8px; margin: 8px 0 12px; }
+    button.confirm { color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
     label { display: block; font-weight: 600; margin-bottom: 6px; }
+    .section-prefix { color: var(--vscode-descriptionForeground); font-weight: 400; font-size: 11px; }
     textarea { width: 100%; box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); padding: 8px; font-family: var(--vscode-editor-font-family); min-height: 82px; resize: vertical; }
-    .missing label::after { content: " pendiente"; color: var(--vscode-errorForeground); font-weight: 400; }
-    .hint { color: var(--vscode-descriptionForeground); font-size: 12px; margin-top: 4px; }
-    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+    textarea::placeholder { color: var(--vscode-input-placeholderForeground); font-style: italic; }
+    .review label::before { content: "revisar"; display: block; color: var(--vscode-editorWarning-foreground, #cca700); font-weight: 700; text-transform: uppercase; }
+    .review textarea { border-color: var(--vscode-editorWarning-foreground, #cca700); }
+    .missing label::before { content: "pendiente"; display: block; color: var(--vscode-errorForeground); font-weight: 700; text-transform: uppercase; }
+    .missing textarea { border-color: var(--vscode-errorForeground); color: var(--vscode-errorForeground); font-weight: 700; }
+    .field-header { display: flex; gap: 8px; justify-content: space-between; align-items: start; }
+    .field-header label { margin-right: 8px; }
+    .hint, .muted { color: var(--vscode-descriptionForeground); }
+    .hint { font-size: 12px; margin-top: 4px; }
+    ul { padding-left: 20px; }
+    pre { white-space: pre-wrap; word-break: break-word; border: 1px solid var(--vscode-panel-border); padding: 16px; background: var(--vscode-textCodeBlock-background); min-height: 70vh; }
+    .placeholder { color: var(--vscode-errorForeground); font-weight: 800; background: color-mix(in srgb, var(--vscode-errorForeground) 16%, transparent); }
+    .diagram label::before { content: "diagrama"; display: block; color: var(--vscode-editorWarning-foreground, #cca700); font-weight: 700; text-transform: uppercase; }
+    .diagram textarea { border-color: var(--vscode-editorWarning-foreground, #cca700); font-size: 12px; min-height: 120px; }
+    .diagram-gallery { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+    .diagram-card { border: 1px solid var(--vscode-panel-border); border-radius: 4px; padding: 12px; background: var(--vscode-editor-background); }
+    .diagram-caption { font-weight: 600; margin-bottom: 8px; }
+    .diagram-svg { overflow-x: auto; background: #ffffff; border-radius: 4px; padding: 10px; text-align: center; }
+    .diagram-svg svg { max-width: 100%; height: auto; }
+    .diagram-legend { color: var(--vscode-descriptionForeground); font-size: 12px; margin-top: 8px; }
+    .diagram-error { color: var(--vscode-errorForeground); font-family: var(--vscode-editor-font-family); font-size: 12px; white-space: pre-wrap; padding: 8px; }
+    .diagram-card-actions { margin-top: 10px; }
   </style>
 </head>
 <body>
@@ -210,17 +193,41 @@ function getEditHtml(webview: vscode.Webview, data: ReadmeData, warnings: string
     <button id="save">Guardar README.generated.md</button>
     <button id="cancel" class="secondary">Cancelar</button>
   </div>
-  <section>
-    <h2>Advertencias y campos a revisar</h2>
-    <ul>${warningItems}</ul>
-  </section>
-  <div class="grid">${sections}</div>
+  <div class="layout">
+    <div>
+      <section>
+        <h2>Advertencias del README</h2>
+        <ul>${warningItems}</ul>
+      </section>
+      ${reviewSection}
+      ${diagramSection}
+      <section>
+        <h2>Campos pendientes</h2>
+        ${pendingActions}
+        ${pendingContent}
+      </section>
+    </div>
+    <section>
+      <h2>Markdown generado</h2>
+      <pre id="markdown">${renderMarkdown(markdown)}</pre>
+    </section>
+  </div>
+  <script nonce="${nonce}" src="${mermaidUri}"></script>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
-    const fields = ${JSON.stringify(fields)};
+    const baseData = ${JSON.stringify(data)};
+    const fields = ${JSON.stringify(editableFields)};
+    const renderOptions = ${JSON.stringify(renderOptions)};
+    // Rutas de los campos que llevan diagramas Mermaid (galería renderizada).
+    const diagramPaths = ${JSON.stringify(diagramFields.map((field) => field.path))};
+
+    function clone(value) {
+      return JSON.parse(JSON.stringify(value));
+    }
 
     function lines(id) {
-      return document.getElementById(id).value.split('\\n').map((line) => line.trim()).filter(Boolean);
+      const element = document.getElementById(id);
+      return element ? element.value.split('\\n').map((line) => line.trim()).filter(Boolean) : [];
     }
 
     function setPath(target, path, value) {
@@ -244,15 +251,21 @@ function getEditHtml(webview: vscode.Webview, data: ReadmeData, warnings: string
     }
 
     function collect() {
-      const data = {};
+      const data = clone(baseData);
       for (const field of fields) {
-        const id = field.path;
+        if (renderOptions.omitFields[field.key]) {
+          continue;
+        }
+        const element = document.getElementById(field.path);
+        if (!element) {
+          continue;
+        }
         if (field.kind === 'list') {
-          setPath(data, field.path, lines(id));
+          setPath(data, field.path, lines(field.path));
         } else if (field.kind === 'env') {
-          setPath(data, field.path, collectEnv(id));
+          setPath(data, field.path, collectEnv(field.path));
         } else {
-          setPath(data, field.path, document.getElementById(id).value.trim());
+          setPath(data, field.path, element.value.trim());
         }
       }
       return data;
@@ -260,47 +273,361 @@ function getEditHtml(webview: vscode.Webview, data: ReadmeData, warnings: string
 
     function markMissing() {
       for (const field of fields) {
+        if (renderOptions.omitFields[field.key]) {
+          continue;
+        }
         const element = document.getElementById(field.path);
+        if (!element) {
+          continue;
+        }
         const fieldset = element.closest('fieldset');
-        fieldset.classList.toggle('missing', element.value.trim().length === 0);
+        const value = element.value.trim();
+        fieldset.classList.toggle('missing', value.length === 0 || value.includes('${FILL_PLACEHOLDER}'));
       }
     }
 
-    document.querySelectorAll('textarea').forEach((element) => element.addEventListener('input', markMissing));
-    document.getElementById('save').addEventListener('click', () => vscode.postMessage({ command: 'save', data: collect() }));
+    function escapeHtml(value) {
+      return value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function renderMarkdown(value) {
+      return escapeHtml(value).replace(/\\*\\*RELLENAR POR USUARIO\\*\\*/g, '<span class="placeholder">**RELLENAR POR USUARIO**</span>');
+    }
+
+    // --- Diagramas Mermaid: parseo, render y descarte por diagrama ---
+    // El textarea es la fuente de la verdad; la galería se deriva de su texto.
+    // Un campo se trocea en segmentos (por encabezado ### o por valla mermaid) y
+    // cada segmento con Mermaid se renderiza como una tarjeta con su descarte.
+    function buildSegment(segLines) {
+      var raw = segLines.join('\\n');
+      var title = '';
+      var code = [];
+      var legend = [];
+      var inFence = false;
+      var fenceDone = false;
+      var hasMermaid = false;
+      for (var i = 0; i < segLines.length; i++) {
+        var line = segLines[i];
+        var h = line.match(/^#{1,6}\\s+(.*)$/);
+        if (h && !title && !inFence) { title = h[1].trim(); continue; }
+        if (/^\\s*\`\`\`/.test(line)) {
+          if (!inFence && /mermaid/i.test(line)) { inFence = true; hasMermaid = true; continue; }
+          if (inFence) { inFence = false; fenceDone = true; continue; }
+          continue;
+        }
+        if (inFence) { code.push(line); continue; }
+        if (fenceDone && line.trim()) { legend.push(line.trim()); }
+      }
+      return { raw: raw, title: title, code: code.join('\\n'), legend: legend.join(' '), hasMermaid: hasMermaid };
+    }
+
+    function parseDiagramSegments(text) {
+      var lines = text.split('\\n');
+      var groups = [];
+      var current = [];
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
+        if (/^#{1,6}\\s+/.test(line) && current.length) {
+          groups.push(current);
+          current = [];
+        }
+        current.push(line);
+      }
+      if (current.length) { groups.push(current); }
+      var segments = [];
+      for (var g = 0; g < groups.length; g++) {
+        segments.push(buildSegment(groups[g]));
+      }
+      return segments.filter(function (s) { return s.raw.trim().length > 0; });
+    }
+
+    var mermaidCounter = 0;
+    function showDiagramError(container, err) {
+      container.innerHTML = '';
+      var box = document.createElement('div');
+      box.className = 'diagram-error';
+      box.textContent = 'No se pudo renderizar el diagrama: ' + (err && err.message ? err.message : String(err));
+      container.appendChild(box);
+    }
+    function renderMermaidInto(container, code) {
+      var id = 'mmd-' + (mermaidCounter++);
+      container.textContent = 'Renderizando...';
+      if (!window.mermaid) { showDiagramError(container, new Error('Mermaid no cargó')); return; }
+      try {
+        window.mermaid.render(id, code).then(function (res) {
+          container.innerHTML = res.svg;
+        }).catch(function (err) { showDiagramError(container, err); });
+      } catch (err) {
+        showDiagramError(container, err);
+      }
+    }
+
+    function discardDiagram(fieldPath, index) {
+      var textarea = document.getElementById(fieldPath);
+      if (!textarea) { return; }
+      var segments = parseDiagramSegments(textarea.value);
+      var kept = [];
+      for (var i = 0; i < segments.length; i++) {
+        if (i !== index) { kept.push(segments[i].raw); }
+      }
+      textarea.value = kept.join('\\n\\n').trim();
+      markMissing();
+      renderGallery(fieldPath);
+      requestPreview();
+    }
+
+    function renderGallery(fieldPath) {
+      var gallery = document.querySelector('[data-gallery-for="' + fieldPath + '"]');
+      var textarea = document.getElementById(fieldPath);
+      if (!gallery || !textarea) { return; }
+      var segments = parseDiagramSegments(textarea.value);
+      gallery.innerHTML = '';
+      var diagramNumber = 0;
+      segments.forEach(function (seg, index) {
+        if (!seg.hasMermaid) { return; }
+        diagramNumber++;
+        var card = document.createElement('div');
+        card.className = 'diagram-card';
+
+        var caption = document.createElement('div');
+        caption.className = 'diagram-caption';
+        caption.textContent = seg.title || ('Diagrama ' + diagramNumber);
+        card.appendChild(caption);
+
+        var svgBox = document.createElement('div');
+        svgBox.className = 'diagram-svg';
+        card.appendChild(svgBox);
+
+        if (seg.legend) {
+          var legend = document.createElement('div');
+          legend.className = 'diagram-legend';
+          legend.textContent = seg.legend;
+          card.appendChild(legend);
+        }
+
+        var actions = document.createElement('div');
+        actions.className = 'diagram-card-actions';
+        var discard = document.createElement('button');
+        discard.type = 'button';
+        discard.className = 'danger';
+        discard.textContent = 'Descartar diagrama';
+        discard.addEventListener('click', function () { discardDiagram(fieldPath, index); });
+        actions.appendChild(discard);
+        card.appendChild(actions);
+
+        gallery.appendChild(card);
+        renderMermaidInto(svgBox, seg.code);
+      });
+      if (!diagramNumber) {
+        var empty = document.createElement('p');
+        empty.className = 'muted';
+        empty.textContent = 'No hay diagramas Mermaid en este campo.';
+        gallery.appendChild(empty);
+      }
+    }
+
+    var galleryTimers = {};
+    function scheduleGallery(fieldPath) {
+      clearTimeout(galleryTimers[fieldPath]);
+      galleryTimers[fieldPath] = setTimeout(function () { renderGallery(fieldPath); }, 250);
+    }
+    function renderAllGalleries() {
+      for (var i = 0; i < diagramPaths.length; i++) { renderGallery(diagramPaths[i]); }
+    }
+    function initMermaid() {
+      if (!window.mermaid) { return; }
+      // Tema fijo 'default' (texto oscuro) porque las tarjetas tienen fondo claro
+      // fijo; así el diagrama se lee igual en tema claro u oscuro de VS Code.
+      window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'default' });
+    }
+
+    let previewTimer;
+    function requestPreview() {
+      clearTimeout(previewTimer);
+      previewTimer = setTimeout(() => {
+        vscode.postMessage({ command: 'preview', data: collect(), renderOptions });
+      }, 150);
+    }
+
+    document.querySelectorAll('textarea').forEach((element) => {
+      element.addEventListener('input', () => {
+        markMissing();
+        if (diagramPaths.indexOf(element.id) !== -1) {
+          scheduleGallery(element.id);
+        }
+        requestPreview();
+      });
+    });
+
+    function discardField(fieldset) {
+      const key = fieldset.getAttribute('data-field-key');
+      renderOptions.omitFields[key] = true;
+      fieldset.classList.remove('confirmed');
+      fieldset.classList.add('omitted');
+    }
+
+    // Confirmar cierra la caja pero mantiene el valor actual: no se omite el
+    // campo, así que collect() sigue leyendo su textarea (oculta) al guardar.
+    function confirmField(fieldset) {
+      const key = fieldset.getAttribute('data-field-key');
+      delete renderOptions.omitFields[key];
+      fieldset.classList.remove('omitted');
+      fieldset.classList.add('confirmed');
+    }
+
+    function isOpen(fieldset) {
+      return !fieldset.classList.contains('confirmed') && !fieldset.classList.contains('omitted');
+    }
+
+    document.querySelectorAll('[data-action="discard"]').forEach((button) => {
+      button.addEventListener('click', () => {
+        discardField(button.closest('fieldset'));
+        requestPreview();
+      });
+    });
+
+    document.querySelectorAll('[data-action="confirm"]').forEach((button) => {
+      button.addEventListener('click', () => {
+        confirmField(button.closest('fieldset'));
+        requestPreview();
+      });
+    });
+
+    // Botones de sección: actúan sobre las cajas que sigan abiertas en ese scope.
+    document.querySelectorAll('[data-bulk-action]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const scope = button.getAttribute('data-bulk-scope');
+        const action = button.getAttribute('data-bulk-action');
+        document.querySelectorAll('fieldset[data-field-scope="' + scope + '"]').forEach((fieldset) => {
+          if (!isOpen(fieldset)) {
+            return;
+          }
+          if (action === 'confirm') {
+            confirmField(fieldset);
+          } else {
+            discardField(fieldset);
+          }
+        });
+        requestPreview();
+      });
+    });
+
+    window.addEventListener('message', (event) => {
+      const message = event.data;
+      if (message?.command === 'previewMarkdown') {
+        document.getElementById('markdown').innerHTML = renderMarkdown(message.markdown);
+      }
+    });
+
+    document.getElementById('save').addEventListener('click', () => {
+      vscode.postMessage({ command: 'save', data: collect(), renderOptions });
+    });
     document.getElementById('cancel').addEventListener('click', () => vscode.postMessage({ command: 'cancel' }));
     markMissing();
+    initMermaid();
+    renderAllGalleries();
   </script>
 </body>
 </html>`;
 }
 
-function sectionEditor(section: FormSection, data: ReadmeData): string {
-  return `<section><h2>${escapeHtml(section.title)}</h2>${section.fields.map((field) => fieldEditor(field, data)).join('')}</section>`;
+function getPendingFields(review: ReviewModel): PendingField[] {
+  return selectFields(review.missing);
 }
 
-function fieldEditor(field: FieldDefinition, data: ReadmeData): string {
-  const rawValue = getPathValue(data, field.path);
-  const value = formatValue(rawValue, field.kind);
-  const hint = field.hint || (field.kind === 'list' ? 'Un valor por línea' : '');
-  return `<fieldset>
-    <label for="${escapeAttribute(field.path)}">${escapeHtml(field.label)}</label>
-    <textarea id="${escapeAttribute(field.path)}">${escapeHtml(value)}</textarea>
+// Campos A que el modelo rellenó: se muestran para verificación humana.
+function getReviewFields(review: ReviewModel): PendingField[] {
+  return selectFields(review.reviewNeeded);
+}
+
+// Campos de diagrama: tipo `raw` cuyo valor contiene un bloque Mermaid. Cubre
+// tanto `sequence_diagrams` (rol A) como `architecture.logical_flow` (rol M, que
+// normalmente no se muestra en el panel), sin depender de rutas concretas.
+function getDiagramFields(data: ReadmeData): PendingField[] {
+  return getFormSections()
+    .flatMap((section) => section.fields.map((field) => ({ ...field, sectionTitle: section.title })))
+    .filter((field) => field.type === 'raw')
+    .filter((field) => {
+      const value = getValueAtPath(data, field.path);
+      return typeof value === 'string' && value.includes('```mermaid');
+    })
+    .map((field) => ({ ...field, key: fieldKey(field.path), kind: field.panelKind }));
+}
+
+function selectFields(entries: ReviewModel['missing']): PendingField[] {
+  const paths = new Set(entries.map((field) => field.path));
+  return getFormSections()
+    .flatMap((section) => section.fields.map((field) => ({ ...field, sectionTitle: section.title })))
+    .filter((field) => paths.has(field.path))
+    .map((field) => ({ ...field, key: fieldKey(field.path), kind: field.panelKind }));
+}
+
+function fieldEditor(field: PendingField, data: ReadmeData, variant: 'pending' | 'review' | 'diagram' = 'pending'): string {
+  const rawValue = getValueAtPath(data, field.path);
+  const value = formatValue(rawValue, field);
+  const isMissing = value.trim() === '' || value.split('\n').some((line) => isPlaceholderValue(line) || line.includes(FILL_PLACEHOLDER));
+  // En 'review'/'diagram' el modelo sí aportó un valor: se muestra para
+  // verificar/corregir, no se vacía. En 'pending' se deja en blanco.
+  const displayValue = variant === 'pending' ? (isMissing ? '' : value) : value;
+  const hint = hintForKind(field.kind);
+  const key = fieldKey(field.path);
+  const classes = variant === 'diagram' ? 'diagram' : variant === 'review' ? 'review' : (isMissing ? 'missing' : '');
+  const confirmButton = '<button type="button" class="confirm" data-action="confirm">Confirmar</button>';
+  const discardButton = '<button type="button" class="danger" data-action="discard">Descartar campo</button>';
+  const placeholder = getPlaceholderText(field.path);
+  // La galería renderiza el/los diagrama(s) Mermaid del campo; el JS del webview
+  // la rellena a partir del textarea (que sigue siendo la fuente de la verdad).
+  const gallery = variant === 'diagram'
+    ? `<div class="diagram-gallery" data-gallery-for="${escapeAttribute(field.path)}"></div>`
+    : '';
+
+  return `<fieldset class="${escapeAttribute(classes)}" data-field-key="${escapeAttribute(key)}" data-field-scope="${escapeAttribute(variant)}">
+    <div class="field-header">
+      <label for="${escapeAttribute(field.path)}"><span class="section-prefix">${escapeHtml(field.sectionTitle)} →</span> ${escapeHtml(field.label)}</label>
+      <div class="field-actions">
+        ${confirmButton}
+        ${discardButton}
+      </div>
+    </div>
+    <textarea id="${escapeAttribute(field.path)}" placeholder="${escapeAttribute(placeholder)}">${escapeHtml(displayValue)}</textarea>
     ${hint ? `<div class="hint">${escapeHtml(hint)}</div>` : ''}
+    ${gallery}
   </fieldset>`;
 }
 
-function getPathValue(value: unknown, path: string): unknown {
-  return path.split('.').reduce<unknown>((current, part) => {
-    if (current && typeof current === 'object' && part in current) {
-      return (current as Record<string, unknown>)[part];
-    }
-    return undefined;
-  }, value);
+function getPlaceholderText(path: string): string {
+  const instruction = getFieldInstruction(path);
+  if (!instruction || instruction.length > 200) {
+    return 'Completa con la información del campo.';
+  }
+  return instruction;
 }
 
-function formatValue(value: unknown, kind: FieldKind): string {
-  if (kind === 'env' && Array.isArray(value)) {
+function normalizeRenderOptions(value: unknown): RenderOptions {
+  if (!value || typeof value !== 'object') {
+    return { omitFields: {}, omitSections: {} };
+  }
+  const record = value as Partial<RenderOptions>;
+  return {
+    omitFields: record.omitFields || {},
+    omitSections: record.omitSections || {}
+  };
+}
+
+function hintForKind(kind: PanelKind): string {
+  if (kind === 'env') {
+    return 'Una variable por línea: NOMBRE: descripción';
+  }
+  return kind === 'list' ? 'Un valor por linea' : '';
+}
+
+function formatValue(value: unknown, field: PendingField): string {
+  if (field.kind === 'env' && Array.isArray(value)) {
     return value
       .map((item) => {
         if (item && typeof item === 'object') {
@@ -318,6 +645,10 @@ function formatValue(value: unknown, kind: FieldKind): string {
   return typeof value === 'string' ? value : '';
 }
 
+function renderMarkdown(markdown: string): string {
+  return escapeHtml(markdown).replace(/\*\*RELLENAR POR USUARIO\*\*/g, '<span class="placeholder">**RELLENAR POR USUARIO**</span>');
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -329,13 +660,4 @@ function escapeHtml(value: string): string {
 
 function escapeAttribute(value: string): string {
   return escapeHtml(value).replace(/\n/g, ' ');
-}
-
-function getNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let nonce = '';
-  for (let i = 0; i < 32; i++) {
-    nonce += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return nonce;
 }

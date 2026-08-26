@@ -1,5 +1,8 @@
-import { ExtensionSettings, ExtractionResult } from '../types';
+import { ExtensionSettings, ExtractionResult, TokenUsage } from '../types';
 import { getExtractionJsonSchema } from '../prompt/promptBuilder';
+import { getFileSelectionJsonSchema } from '../prompt/fileSelectionPrompt';
+import { FileSelectionResult } from '../scanner/types';
+import { extractJsonObject, safeJsonParse } from '../utils/json';
 
 interface ResponsesApiOutputContent {
   type?: string;
@@ -17,14 +20,53 @@ interface ResponsesApiResponse {
   error?: {
     message?: string;
   };
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+  };
+}
+
+export interface ApiCallResult<T> {
+  data: T;
+  tokenUsage: TokenUsage;
 }
 
 export class AzureResponsesClient {
   constructor(private readonly settings: ExtensionSettings) {}
 
-  async extractReadmeData(prompt: string): Promise<ExtractionResult> {
+  async preSelectImportantFiles(prompt: string, deploymentOverride?: string): Promise<ApiCallResult<FileSelectionResult>> {
     const response = await this.postResponse({
-      model: this.settings.deployment,
+      model: deploymentOverride ?? this.settings.deployment,
+      input: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: prompt
+            }
+          ]
+        }
+      ],
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'file_selection_result',
+          strict: true,
+          schema: getFileSelectionJsonSchema()
+        }
+      }
+    });
+
+    return {
+      data: parseFileSelectionResult(extractResponseText(response)),
+      tokenUsage: extractTokenUsage(response)
+    };
+  }
+
+  async extractReadmeData(prompt: string, deploymentOverride?: string): Promise<ApiCallResult<ExtractionResult>> {
+    const response = await this.postResponse({
+      model: deploymentOverride ?? this.settings.deployment,
       input: [
         {
           role: 'user',
@@ -46,7 +88,72 @@ export class AzureResponsesClient {
       }
     });
 
-    return parseExtractionResult(extractResponseText(response));
+    return {
+      data: parseExtractionResult(extractResponseText(response)),
+      tokenUsage: extractTokenUsage(response)
+    };
+  }
+
+  // Llamada genérica con json_schema estricto que devuelve el texto crudo de salida.
+  // La reutilizan pasos que definen su propio schema (p. ej. la inserción de ranking
+  // del actualizador) sin duplicar la fontanería de postResponse.
+  async callWithSchema(
+    prompt: string,
+    schemaName: string,
+    schema: object,
+    deploymentOverride?: string
+  ): Promise<ApiCallResult<string>> {
+    const response = await this.postResponse({
+      model: deploymentOverride ?? this.settings.deployment,
+      input: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: prompt
+            }
+          ]
+        }
+      ],
+      text: {
+        format: {
+          type: 'json_schema',
+          name: schemaName,
+          strict: true,
+          schema
+        }
+      }
+    });
+
+    return {
+      data: extractResponseText(response),
+      tokenUsage: extractTokenUsage(response)
+    };
+  }
+
+  // Llamada de texto libre (sin json_schema): devuelve el texto de salida tal cual. La
+  // usa la aplicación de cambios del actualizador (Paso 6), que produce Markdown, no JSON.
+  async completeText(prompt: string, deploymentOverride?: string): Promise<ApiCallResult<string>> {
+    const response = await this.postResponse({
+      model: deploymentOverride ?? this.settings.deployment,
+      input: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: prompt
+            }
+          ]
+        }
+      ]
+    });
+
+    return {
+      data: extractResponseText(response),
+      tokenUsage: extractTokenUsage(response)
+    };
   }
 
   private async postResponse(body: object): Promise<ResponsesApiResponse> {
@@ -82,6 +189,31 @@ export class AzureResponsesClient {
   }
 }
 
+function extractTokenUsage(response: ResponsesApiResponse): TokenUsage {
+  return {
+    inputTokens: response.usage?.input_tokens ?? 0,
+    outputTokens: response.usage?.output_tokens ?? 0
+  };
+}
+
+function parseFileSelectionResult(text: string): FileSelectionResult {
+  const parsed = safeJsonParse<FileSelectionResult>(text) || safeJsonParse<FileSelectionResult>(extractJsonObject(text));
+  if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.selectedFiles)) {
+    throw new Error('Azure OpenAI response was not valid file selection JSON.');
+  }
+  const parseItems = (arr: unknown): FileSelectionResult['selectedFiles'] =>
+    Array.isArray(arr)
+      ? arr
+          .filter((item): item is { path: string; reason?: string } => item && typeof item.path === 'string')
+          .map((item) => ({ path: item.path, reason: typeof item.reason === 'string' ? item.reason : '' }))
+      : [];
+  return {
+    selectedFiles: parseItems(parsed.selectedFiles),
+    discardedFiles: parseItems(parsed.discardedFiles),
+    warnings: Array.isArray(parsed.warnings) ? parsed.warnings : []
+  };
+}
+
 function extractResponseText(response: ResponsesApiResponse): string {
   if (response.output_text) {
     return response.output_text;
@@ -114,19 +246,3 @@ function parseExtractionResult(text: string): ExtractionResult {
   };
 }
 
-function extractJsonObject(text: string): string {
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start === -1 || end === -1 || end <= start) {
-    return text;
-  }
-  return text.slice(start, end + 1);
-}
-
-function safeJsonParse<T>(value: string): T | undefined {
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return undefined;
-  }
-}

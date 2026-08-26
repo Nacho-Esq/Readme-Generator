@@ -1,19 +1,26 @@
 {
-  "name": "readme-generator-ai",
-  "displayName": "README Generator AI",
-  "description": "Generate polished README documentation from a local repository using Azure OpenAI Responses API and a Jinja/Nunjucks template.",
-  "version": "0.1.0",
-  "publisher": "nttdata",
+  "name": "cai-readme-generator",
+  "displayName": "CAI Readme-Generator",
+  "description": "Genera README en español a partir de un repositorio local usando Azure OpenAI Responses API y una plantilla Markdown con tokens propios.",
+  "version": "1.0.1",
+  "publisher": "iesquivr",
   "license": "MIT",
+  "icon": "media/icon.png",
   "engines": {
     "vscode": "^1.92.0"
   },
   "categories": [
     "Other"
   ],
+  "keywords": [
+    "readme",
+    "documentation",
+    "generator",
+    "ai",
+    "azure openai"
+  ],
   "activationEvents": [
-    "onStartupFinished",
-    "onCommand:readmeGeneratorAi.generateReadme"
+    "onStartupFinished"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -21,20 +28,90 @@
       {
         "command": "readmeGeneratorAi.generateReadme",
         "title": "Generate README",
-        "category": "README Generator AI",
+        "category": "CAI Readme-Generator",
         "icon": "$(book)"
+      },
+      {
+        "command": "readmeGeneratorAi.updateReadme",
+        "title": "Update README",
+        "category": "CAI Readme-Generator",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "readmeGeneratorAi.openLastTrace",
+        "title": "Open Last Trace",
+        "category": "CAI Readme-Generator",
+        "icon": "$(output)"
+      },
+      {
+        "command": "readmeGeneratorAi.openGeneratedData",
+        "title": "Open Generated Data",
+        "category": "CAI Readme-Generator",
+        "icon": "$(database)"
+      },
+      {
+        "command": "readmeGeneratorAi.setApiKey",
+        "title": "Configurar API key",
+        "category": "CAI Readme-Generator",
+        "icon": "$(key)"
+      },
+      {
+        "command": "readmeGeneratorAi.setEndpoint",
+        "title": "Configurar endpoint",
+        "category": "CAI Readme-Generator",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "readmeGeneratorAi.clearCredentials",
+        "title": "Borrar credenciales guardadas",
+        "category": "CAI Readme-Generator",
+        "icon": "$(trash)"
       }
     ],
     "menus": {
       "commandPalette": [
         {
           "command": "readmeGeneratorAi.generateReadme"
+        },
+        {
+          "command": "readmeGeneratorAi.updateReadme"
+        },
+        {
+          "command": "readmeGeneratorAi.openLastTrace"
+        },
+        {
+          "command": "readmeGeneratorAi.openGeneratedData"
+        },
+        {
+          "command": "readmeGeneratorAi.setApiKey"
+        },
+        {
+          "command": "readmeGeneratorAi.setEndpoint"
+        },
+        {
+          "command": "readmeGeneratorAi.clearCredentials"
         }
       ],
       "explorer/title": [
         {
           "command": "readmeGeneratorAi.generateReadme",
           "group": "navigation"
+        },
+        {
+          "command": "readmeGeneratorAi.updateReadme",
+          "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "readmeGeneratorAi.generateReadme",
+          "when": "explorerResourceIsFolder",
+          "group": "readmeGeneratorAi@1"
+        },
+        {
+          "command": "readmeGeneratorAi.updateReadme",
+          "when": "explorerResourceIsFolder",
+          "group": "readmeGeneratorAi@2"
         }
       ],
       "explorer/context": [
@@ -46,73 +123,68 @@
       ]
     },
     "configuration": {
-      "title": "README Generator AI",
+      "title": "CAI Readme-Generator",
       "properties": {
-        "readmeGeneratorAi.apiKey": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "Azure OpenAI API key. Prefer setting it in user settings and avoid committing workspace settings.",
-          "scope": "machine"
-        },
-        "readmeGeneratorAi.endpoint": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "Azure OpenAI endpoint. Accepts either the resource endpoint, for example `https://my-resource.openai.azure.com`, or a full Responses API URL.",
-          "scope": "machine"
-        },
         "readmeGeneratorAi.deployment": {
           "type": "string",
-          "default": "test-plantillas-gpt-5.2-codex",
-          "markdownDescription": "Azure OpenAI deployment/model name used by the Responses API.",
+          "default": "",
+          "markdownDescription": "Modelo de **redacción**: el que escribe el README. Es el modelo \"grande\", así que elige uno con buena calidad de escritura. Como mínimo debería ser un modelo tipo **mini** (o superior). Escribe aquí el nombre exacto de tu modelo.",
+          "scope": "machine"
+        },
+        "readmeGeneratorAi.preSelectionDeployment": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Modelo de **lectura**: el que revisa los archivos del proyecto y decide qué es importante. Es el modelo \"pequeño\", así que basta con uno económico tipo **nano**. Escribe aquí el nombre exacto de tu modelo. Si lo dejas vacío, se usará el mismo modelo que el de redacción.",
           "scope": "machine"
         },
         "readmeGeneratorAi.templatePath": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Optional absolute path to the external Jinja markdown template. If empty, the extension uses its bundled template.",
+          "markdownDescription": "Opcional y solo para usuarios avanzados. Ruta a tu propia plantilla de README si quieres personalizar cómo queda. Si lo dejas vacío, se usa la plantilla que ya trae la extensión (recomendado).",
           "scope": "resource"
         },
-        "readmeGeneratorAi.maxFiles": {
-          "type": "number",
-          "default": 24,
-          "minimum": 4,
-          "maximum": 60,
-          "markdownDescription": "Maximum number of ranked files sent to Azure OpenAI.",
+        "readmeGeneratorAi.readDepth": {
+          "type": "string",
+          "default": "básico",
+          "enum": [
+            "básico",
+            "detallado",
+            "profundo",
+            "personalizado"
+          ],
+          "enumDescriptions": [
+            "Lectura rápida y más barata. Suficiente para proyectos pequeños o sencillos.",
+            "Lectura equilibrada. Recomendado para la mayoría de proyectos.",
+            "Lectura minuciosa y más cara. Para proyectos grandes o complejos.",
+            "Tú decides cuánto puede leer (se ajusta más abajo)."
+          ],
+          "markdownDescription": "Cuánto detalle lee la herramienta antes de escribir el README. A más profundidad, mejor resultado en proyectos grandes, pero también más coste. Si no lo tienes claro, deja **detallado**.",
           "scope": "resource"
         },
-        "readmeGeneratorAi.maxBytesPerFile": {
+        "readmeGeneratorAi.readDepthCustomBudget": {
           "type": "number",
-          "default": 18000,
-          "minimum": 2000,
-          "maximum": 60000,
-          "markdownDescription": "Maximum bytes read from each selected source file.",
-          "scope": "resource"
-        },
-        "readmeGeneratorAi.maxTotalBytes": {
-          "type": "number",
-          "default": 160000,
-          "minimum": 20000,
-          "maximum": 400000,
-          "markdownDescription": "Maximum combined source bytes sent to Azure OpenAI.",
+          "default": 30000,
+          "minimum": 1000,
+          "markdownDescription": "Límite de lectura a medida. Solo se usa si arriba eliges la profundidad **personalizado**. Un número más alto lee más (mejor resultado, más coste).",
           "scope": "resource"
         }
       }
     }
   },
   "scripts": {
+    "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "package": "vsce package",
     "publish": "vsce publish"
   },
-  "dependencies": {
-    "nunjucks": "^3.2.4"
-  },
   "devDependencies": {
     "@types/node": "^20.14.10",
-    "@types/nunjucks": "^3.2.6",
     "@types/vscode": "^1.92.0",
     "@vscode/vsce": "^2.31.1",
-    "typescript": "^5.5.4"
+    "typescript": "^5.5.4",
+    "vitest": "^4.1.10"
   }
 }

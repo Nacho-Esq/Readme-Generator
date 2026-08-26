@@ -44,6 +44,12 @@ export interface FieldSpec extends ParsedToken {
   sectionContext?: string;
   jsonType: JsonType;
   panelKind: PanelKind;
+  // true si el campo se escribe como subsección con encabezado propio
+  // ("### Etiqueta [[…]]"), de modo que al renderizar produce una línea `###`. Los
+  // campos en línea (p. ej. "# [[ project_name ]]" o un token suelto bajo el
+  // encabezado de sección) tienen headingField=false. Lo usa el actualizador para
+  // saber qué bloques `###` puede eliminar al desaparecer un campo.
+  headingField: boolean;
 }
 
 export interface FormSection {
@@ -67,6 +73,8 @@ export const TOKEN_REGEX = /\[\[([\s\S]*?)\]\]/g;
 const COMMENT_REGEX = /<!--[\s\S]*?-->/g;
 const HEADING_REGEX = /^#{1,6}\s+(\S.*?)\s*$/;
 const HEADING_PREFIX_REGEX = /^\s*#{1,6}\s+/;
+// Encabezado con posible etiqueta antes del token: grupo 1 = "### ", grupo 2 = etiqueta.
+const HEADING_FIELD_REGEX = /^(\s*#{1,6}\s+)(.*)$/;
 const BULLET_PREFIX_REGEX = /^\s*[-*]\s+/;
 const BOLD_REGEX = /\*\*(.+?)\*\*/;
 const SECTION_NUMBER_PREFIX = /^\d+\.\s*/;
@@ -190,8 +198,21 @@ function enrichField(
     label: deriveLabel(before, currentSection, token.path),
     section: currentSection || 'General',
     sectionKey,
-    sectionContext
+    sectionContext,
+    headingField: isHeadingField(before)
   };
+}
+
+// ¿El texto que precede al token es un encabezado CON etiqueta ("### Diagrama
+// lógico ")? En ese caso el campo se renderiza como subsección `###`. Un encabezado
+// sin etiqueta (solo el token, p. ej. "# " antes de project_name) o un token en
+// línea no cuenta. Espejo de matchHeadingField en templateRenderer.
+function isHeadingField(before: string): boolean {
+  const match = before.match(HEADING_FIELD_REGEX);
+  if (!match) {
+    return false;
+  }
+  return match[2].replace(/[:\s]+$/, '').trim().length > 0;
 }
 
 function jsonTypeOf(type: RenderType | undefined): JsonType {

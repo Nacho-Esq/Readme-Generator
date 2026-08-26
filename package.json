@@ -2,7 +2,7 @@
   "name": "cai-readme-generator",
   "displayName": "CAI Readme-Generator",
   "description": "Genera README en español a partir de un repositorio local usando Azure OpenAI Responses API y una plantilla Markdown con tokens propios.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "iesquivr",
   "license": "MIT",
   "icon": "media/icon.png",

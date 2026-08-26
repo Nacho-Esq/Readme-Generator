@@ -31,7 +31,7 @@ import { AutoSensitiveFile, RedactFn, SecurityReviewPanel } from './ui/securityR
 import { hashContent, loadRankingMemory, saveRankingMemory } from './pipeline/rankingMemory';
 import { resolveStorageDir } from './storage/extensionStorage';
 import { appendNewFilesFallback, buildRankingInsertionPrompt, getRankingInsertionSchema, mergeNewFilesIntoRanking, parseRankingPlacements } from './pipeline/rankingInsertion';
-import { applyApprovedChanges, compareFichas, extractCodeFichas, extractHeadings, extractReadmeFichas, getPopulatedFichaPaths, reconcileSuspects } from './update/updatePipeline';
+import { applyApprovedChanges, compareFichas, extractCodeFichas, extractHeadings, extractReadmeFichas, getPopulatedFichaPaths, planStructuralRemoval, reconcileSuspects, stripRemovedStructure } from './update/updatePipeline';
 import { formatFichaValue, isFichaEmpty, parseFichaText } from './update/fichaUtils';
 import { ApplyChange } from './update/applyPrompt';
 import { UpdateCard, UpdateReviewPanel } from './update/updateReviewPanel';
@@ -743,6 +743,7 @@ async function runUpdateForFolder(
       // Paso 6 — Traducir las decisiones del panel a cambios y aplicarlos sobre el README.
       const proposalsByPath = new Map(proposals.map((p) => [p.path, p]));
       const changes: ApplyChange[] = [];
+      const removedPaths = new Set<string>();
       for (const decision of result.resolved) {
         if (decision.decision === 'keep') {
           continue;
@@ -756,10 +757,15 @@ async function runUpdateForFolder(
           : proposal.recommendation === 'remove'
             ? (proposal.panelKind === 'text' ? '' : [])
             : proposal.proposedValue;
+        const action: 'update' | 'remove' = isFichaEmpty(newValue, proposal.panelKind) ? 'remove' : 'update';
+        if (action === 'remove') {
+          removedPaths.add(proposal.path);
+        }
         changes.push({
+          path: proposal.path,
           section: proposal.section,
           label: proposal.label,
-          action: isFichaEmpty(newValue, proposal.panelKind) ? 'remove' : 'update',
+          action,
           currentText: formatFichaValue(proposal.readmeValue, proposal.panelKind),
           newText: formatFichaValue(newValue, proposal.panelKind)
         });
@@ -771,10 +777,19 @@ async function runUpdateForFolder(
       }
 
       reporter.phase('render');
-      const newMarkdown = await applyApprovedChanges(ctx.client, readmeText, changes, getPreSelectionDeployment(settings));
+      // Estructura: primero eliminamos de forma MECÁNICA (sin modelo) las subsecciones y
+      // secciones que se quedan sin contenido tras los "quitar" aprobados. El resultado es
+      // el baseline contra el que se congela la estructura; el modelo solo aplica los
+      // cambios de VALOR restantes en su sitio.
+      const plan = planStructuralRemoval(removedPaths, readmeFichas.fichas);
+      const baselineText = stripRemovedStructure(readmeText, plan.removedFieldLabels, plan.removedSectionTitles);
+      const remainingChanges = changes.filter((change) => !plan.structuralPaths.has(change.path));
+      const newMarkdown = await applyApprovedChanges(ctx.client, baselineText, remainingChanges, getPreSelectionDeployment(settings));
 
-      // Guardarraíl estructural: los encabezados (#) no pueden haber cambiado.
-      if (extractHeadings(readmeText).join('\n') !== extractHeadings(newMarkdown).join('\n')) {
+      // Guardarraíl estructural: el modelo solo puede tocar valores, no encabezados. Se
+      // compara contra el baseline ya operado (que sí puede tener menos secciones que el
+      // README original: esas desapariciones las hicimos nosotros de forma determinista).
+      if (extractHeadings(baselineText).join('\n') !== extractHeadings(newMarkdown).join('\n')) {
         vscode.window.showErrorMessage(
           `No se aplicaron los cambios: la operación habría alterado la estructura (encabezados) de ${target.label}. Inténtalo de nuevo.`
         );

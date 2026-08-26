@@ -5,6 +5,7 @@
 import { indent } from '../utils/text';
 
 export interface ApplyChange {
+  path: string;        // ruta del campo en la plantilla (para separar valor vs estructura)
   section: string;
   label: string;
   action: 'update' | 'remove';

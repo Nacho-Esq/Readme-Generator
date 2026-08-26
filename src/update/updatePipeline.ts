@@ -20,7 +20,7 @@
 import { AzureResponsesClient } from '../azure/azureResponsesClient';
 import { buildExtractionPrompt, NanoContext } from '../prompt/promptBuilder';
 import { RepositoryMap, SelectedFile } from '../scanner/types';
-import { getAllFields, getFieldInstruction, PanelKind } from '../template/templateSpec';
+import { FieldSpec, getAllFields, getFieldInstruction, PanelKind } from '../template/templateSpec';
 import { ReadmeData, TokenUsage } from '../types';
 import { buildComparePrompt, CompareItem, getCompareSchema, parseComparisons } from './comparePrompt';
 import { buildReconcilePrompt, getReconcileSchema, parseReconciliations, ReconcileItem } from './reconcilePrompt';
@@ -292,12 +292,239 @@ export async function applyApprovedChanges(
 }
 
 // Encabezados markdown (líneas #…) en orden. Guardarraíl estructural del Paso 6: si
-// cambian entre el README original y el aplicado, el modelo rompió la estructura.
+// cambian entre el README (ya operado por stripRemovedStructure) y el aplicado, el
+// modelo rompió la estructura.
 export function extractHeadings(markdown: string): string[] {
   return markdown
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => /^#{1,6}\s+\S/.test(line));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Paso 6 (estructura) — desaparición determinista de secciones y subsecciones
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Cuando el humano aprueba QUITAR campos, algunos huecos no son de valor sino de
+// ESTRUCTURA: una subsección `### Etiqueta` o una sección entera `## N. Título` que
+// se queda sin ningún campo con valor. Antes esto chocaba con el guardarraíl de
+// encabezados (que exigía estructura idéntica) y abortaba. La solución es que la
+// estructura la decidamos NOSOTROS de forma mecánica (sin modelo): eliminamos esos
+// bloques aquí y dejamos que el modelo solo sustituya VALORES sobre el resultado ya
+// operado. El guardarraíl se mantiene, pero comparando contra ese baseline.
+
+export interface StructuralRemovalPlan {
+  // Títulos de secciones que desaparecen enteras (`## N. Título`). Solo secciones sin
+  // campos de rol humano (H), donde las fichas conocen con certeza todo el contenido.
+  removedSectionTitles: string[];
+  // Etiquetas de subsecciones (`### Etiqueta`) que desaparecen, en secciones que
+  // sobreviven o que tienen campos H (cuya vacuidad se decide luego sobre el texto).
+  removedFieldLabels: string[];
+  // Rutas cubiertas por lo anterior: sus cambios ya no van al modelo (son mecánicos).
+  structuralPaths: Set<string>;
+}
+
+// Decide, a partir de las rutas que el humano aprobó QUITAR y de las fichas actuales
+// del README, qué bloques estructurales deben desaparecer. No toca texto: solo planifica.
+export function planStructuralRemoval(removedPaths: Set<string>, readmeFichas: ReadmeData): StructuralRemovalPlan {
+  const fields = getAllFields();
+  const isPopulated = (field: FieldSpec): boolean =>
+    !isFichaEmpty(getFichaValue(readmeFichas, field.path), field.panelKind);
+
+  // Agrupar por sección omitible (sectionKey): solo esas pueden desaparecer enteras.
+  const groups = new Map<string, { title: string; fields: FieldSpec[] }>();
+  for (const field of fields) {
+    if (!field.sectionKey) {
+      continue;
+    }
+    let group = groups.get(field.sectionKey);
+    if (!group) {
+      group = { title: field.section, fields: [] };
+      groups.set(field.sectionKey, group);
+    }
+    group.fields.push(field);
+  }
+
+  const removedSectionTitles: string[] = [];
+  const structuralPaths = new Set<string>();
+  const wholeSections = new Set<string>(); // sectionKey de secciones que se van enteras
+
+  for (const [key, group] of groups) {
+    const populated = group.fields.filter(isPopulated);
+    if (populated.length === 0) {
+      continue; // ya estaba vacía: el README no la muestra, nada que quitar.
+    }
+    if (populated.some((field) => !removedPaths.has(field.path))) {
+      continue; // sobrevive al menos un campo con valor.
+    }
+    // Todos los campos con valor (según fichas) se quitan. Solo borramos la sección
+    // entera de forma determinista si NO tiene campos humanos (H): las fichas no
+    // extraen los H, así que en secciones con H la vacuidad se decide sobre el texto.
+    if (group.fields.some((field) => field.role === 'H')) {
+      continue;
+    }
+    removedSectionTitles.push(group.title);
+    wholeSections.add(key);
+    for (const field of populated) {
+      structuralPaths.add(field.path);
+    }
+  }
+
+  // Subsecciones `###` de campos quitados cuya sección NO se va entera: se borra su
+  // bloque; si tras ello la sección queda sin contenido, collapse la elimina.
+  const removedFieldLabels: string[] = [];
+  for (const field of fields) {
+    if (!removedPaths.has(field.path) || structuralPaths.has(field.path)) {
+      continue;
+    }
+    if (field.sectionKey && wholeSections.has(field.sectionKey)) {
+      continue;
+    }
+    if (field.headingField) {
+      removedFieldLabels.push(field.label);
+      structuralPaths.add(field.path);
+    }
+    // Campos en línea (headingField=false) en una sección que sobrevive: los quita el
+    // modelo sustituyendo el valor en su sitio (no cambian encabezados).
+  }
+
+  return { removedSectionTitles, removedFieldLabels, structuralPaths };
+}
+
+const SECTION_HEADING_REGEX = /^##\s+(?:\d+\.\s+)?(.+?)\s*$/;
+const SUBSECTION_HEADING_REGEX = /^###\s+(.+?)\s*$/;
+const ANY_HEADING_REGEX = /^#{1,6}\s+\S/;
+const SEPARATOR_REGEX = /^-{3,}\s*$/;
+
+function normKey(text: string): string {
+  return text.trim().toLowerCase();
+}
+
+// Aplica el plan sobre el Markdown: elimina los bloques `## N. Título` y `### Etiqueta`
+// indicados, colapsa cualquier sección que quede sin contenido, y renumera/asea. Puro.
+export function stripRemovedStructure(
+  markdown: string,
+  removedFieldLabels: string[],
+  removedSectionTitles: string[]
+): string {
+  if (removedFieldLabels.length === 0 && removedSectionTitles.length === 0) {
+    return markdown;
+  }
+  const fieldSet = new Set(removedFieldLabels.map(normKey));
+  const sectionSet = new Set(removedSectionTitles.map(normKey));
+
+  // 1) Borrado de bloques indicados. `section` borra hasta el siguiente `## `;
+  //    `field` borra un bloque `###` hasta el siguiente encabezado o separador.
+  const afterBlocks: string[] = [];
+  let mode: 'none' | 'section' | 'field' = 'none';
+  for (const line of markdown.split('\n')) {
+    if (mode === 'section') {
+      if (/^##\s/.test(line)) {
+        mode = 'none';
+      } else {
+        continue;
+      }
+    }
+    if (mode === 'field') {
+      if (ANY_HEADING_REGEX.test(line) || SEPARATOR_REGEX.test(line)) {
+        mode = 'none';
+      } else {
+        continue;
+      }
+    }
+    const sectionTitle = matchHeadingTitle(line, SECTION_HEADING_REGEX);
+    if (sectionTitle !== undefined && sectionSet.has(normKey(sectionTitle))) {
+      mode = 'section';
+      continue;
+    }
+    const fieldTitle = matchHeadingTitle(line, SUBSECTION_HEADING_REGEX);
+    if (fieldTitle !== undefined && fieldSet.has(normKey(fieldTitle))) {
+      mode = 'field';
+      continue;
+    }
+    afterBlocks.push(line);
+  }
+
+  // 2) Colapso de secciones vacías: una `## N. Título` cuyo cuerpo (hasta la siguiente
+  //    `## `) no tenga NINGUNA línea con contenido (ni encabezados, ni texto) se elimina.
+  const afterCollapse = collapseEmptySections(afterBlocks);
+
+  // 3) Aseo de separadores/blancos y renumeración final de las secciones supervivientes.
+  return renumberSections(tidySeparators(afterCollapse));
+}
+
+function matchHeadingTitle(line: string, regex: RegExp): string | undefined {
+  const match = line.match(regex);
+  return match ? match[1] : undefined;
+}
+
+function collapseEmptySections(lines: string[]): string[] {
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const isSection = SECTION_HEADING_REGEX.test(lines[i]) && /^##\s/.test(lines[i]);
+    if (!isSection) {
+      out.push(lines[i]);
+      i += 1;
+      continue;
+    }
+    let j = i + 1;
+    while (j < lines.length && !/^##\s/.test(lines[j])) {
+      j += 1;
+    }
+    const hasContent = lines.slice(i + 1, j).some((line) => line.trim() !== '' && !SEPARATOR_REGEX.test(line));
+    if (hasContent) {
+      for (let k = i; k < j; k++) {
+        out.push(lines[k]);
+      }
+    }
+    i = j; // sin contenido → se descarta la sección entera (encabezado incluido).
+  }
+  return out;
+}
+
+// Elimina separadores `---` sobrantes: iniciales, finales y duplicados consecutivos
+// (con solo líneas en blanco entre medias). Deja un único `---` entre bloques.
+function tidySeparators(lines: string[]): string {
+  const kept: string[] = [];
+  for (const line of lines) {
+    if (SEPARATOR_REGEX.test(line)) {
+      let prev = kept.length - 1;
+      while (prev >= 0 && kept[prev].trim() === '') {
+        prev -= 1;
+      }
+      if (prev < 0 || SEPARATOR_REGEX.test(kept[prev])) {
+        continue; // separador inicial o duplicado.
+      }
+    }
+    kept.push(line);
+  }
+  while (kept.length > 0) {
+    const last = kept[kept.length - 1];
+    if (last.trim() === '' || SEPARATOR_REGEX.test(last)) {
+      kept.pop();
+    } else {
+      break;
+    }
+  }
+  return kept.join('\n').replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '').trimEnd() + '\n';
+}
+
+// Renumera las secciones `## N. Título` de forma secuencial. Espejo de la función del
+// mismo nombre en templateRenderer (que no se puede importar aquí: arrastra 'vscode').
+function renumberSections(markdown: string): string {
+  let counter = 0;
+  return markdown
+    .split('\n')
+    .map((line) => {
+      const match = line.match(/^##\s+\d+\.\s+(.*)$/);
+      if (!match) {
+        return line;
+      }
+      counter += 1;
+      return `## ${counter}. ${match[1]}`;
+    })
+    .join('\n');
 }
 
 // El modelo debería devolver Markdown sin envolver, pero a veces lo encierra en una valla

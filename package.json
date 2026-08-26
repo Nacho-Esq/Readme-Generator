@@ -113,13 +113,6 @@
           "when": "explorerResourceIsFolder",
           "group": "readmeGeneratorAi@2"
         }
-      ],
-      "explorer/context": [
-        {
-          "command": "readmeGeneratorAi.generateReadme",
-          "when": "workspaceFolderCount > 0",
-          "group": "navigation"
-        }
       ]
     },
     "configuration": {

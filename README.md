@@ -123,8 +123,6 @@ El **endpoint** y la **API key** no son ajustes: se configuran con los comandos 
 
 ## Para desarrolladores
 
-Instala las dependencias y compila la extensión:
-
 ```bash
 npm install
 npm run compile   # compila a dist/
